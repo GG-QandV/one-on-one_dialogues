@@ -1,0 +1,18 @@
+# runtime data
+data/
+
+# backups
+backup/
+backups/
+
+# env secrets
+.env
+
+# python
+__pycache__/
+*.pyc
+.venv/
+
+# systemd env with keys
+systemd/*.env
+!systemd/*.env.example
