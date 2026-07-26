@@ -1,0 +1,85 @@
+# speech-local v2.0 — example config
+# Copy to config.toml and edit.
+
+[privacy]
+default_profile = "open"
+allow_switch_midsession = true
+
+[provider]
+
+[provider.translation]
+active = "gemini"
+endpoint = ""
+model = ""
+
+[provider.realtime]
+active = "openai"
+model = "gpt-realtime-translate"
+enabled_profiles = ["open"]
+
+[provider.draft]
+active = "gemini"
+model = ""
+max_words = 120
+
+[stt]
+model = "ggml-base.bin"
+fallback_model = "ggml-tiny.bin"
+mode = "file_per_segment"
+json_output = true
+language_autodetect = true
+
+[streams]
+
+[streams.microphone]
+source_language = "ru"
+target_language = "en"
+pipewire_node = ""
+enabled = true
+priority = "primary"
+
+[streams.meeting]
+source_language = "en"
+target_language = "ru"
+pipewire_node = ""
+enabled = true
+priority = "secondary"
+
+[vad]
+silence_close_ms = 1000
+segment_min_s = 0.8
+segment_max_s = 15
+partial_interval_ms = 600
+
+[latency]
+target_ms = 3000
+degrade_above_ms = 3000
+
+[translation]
+
+[translation.context]
+window_short = 4
+window_mid = 3
+window_long = 2
+short_chars = 100
+long_chars = 200
+
+[draft]
+auto_generate = true
+library_max_tokens = 30000
+generate_language = "ru"
+translate_mode = "live_literal"
+
+[retention]
+audio = "after_stt"
+
+[memory]
+high_mb = 1750
+max_mb = 1900
+
+[delivery]
+clipboard_hotkey = "ctrl+alt+c"
+
+[ui]
+host = "127.0.0.1"
+port = 8790

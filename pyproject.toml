@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "speech-local"
+version = "2.0.0"
+description = "Offline-first speech translation & draft assistant"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.5",
+    "mypy>=1.11",
+    "httpx>=0.27",
+    "syrupy>=4",
+]
+test = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "syrupy>=4",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "B", "BLE", "C4", "SIM", "ARG", "PTH"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*.py" = ["ARG"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+asyncio_mode = "auto"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+markers = [
+    "slow: slow tests (deselect with '-m \"not slow\"')",
+    "acceptance: acceptance test suite (H2)",
+]
+
+[tool.coverage.run]
+source = ["app"]

@@ -1,0 +1,22 @@
+[
+  {"id": "lit_01", "source": "en", "target": "ru", "text": "My phone number is 555-0192.", "expected_note": "number in text"},
+  {"id": "lit_02", "source": "en", "target": "ru", "text": "The meeting is on 2024-12-25 at 3pm.", "expected_note": "date+time"},
+  {"id": "lit_03", "source": "en", "target": "ru", "text": "The total cost is $49.99 per unit.", "expected_note": "price"},
+  {"id": "lit_04", "source": "en", "target": "ru", "text": "Please send the invoice to user@example.com.", "expected_note": "email"},
+  {"id": "lit_05", "source": "en", "target": "ru", "text": "Visit https://example.com/docs for details.", "expected_note": "URL"},
+  {"id": "lit_06", "source": "en", "target": "ru", "text": "Mr. Johnson from Acme Corp. will join at 10.", "expected_note": "proper names"},
+  {"id": "lit_07", "source": "en", "target": "ru", "text": "The office is at 350 Fifth Avenue, New York.", "expected_note": "address"},
+  {"id": "lit_08", "source": "en", "target": "ru", "text": "We have a 15% discount on bulk orders.", "expected_note": "percentage"},
+  {"id": "lit_09", "source": "en", "target": "ru", "text": "Mix 3/4 cup of flour with 1/2 cup of sugar.", "expected_note": "fractions"},
+  {"id": "lit_10", "source": "en", "target": "ru", "text": "Please take the 3rd left and then the 2nd right.", "expected_note": "ordinals"},
+  {"id": "lit_11", "source": "en", "target": "ru", "text": "The population is 8,123,456 as of last year.", "expected_note": "long number"},
+  {"id": "lit_12", "source": "en", "target": "ru", "text": "The CEO confirmed the Q4 report via email.", "expected_note": "acronym"},
+  {"id": "lit_13", "source": "en", "target": "ru", "text": "They mentioned the so-called 'grandfather clause'.", "expected_note": "quoted term"},
+  {"id": "lit_14", "source": "en", "target": "ru", "text": "The API returns a 404 status for missing IDs.", "expected_note": "API path"},
+  {"id": "lit_15", "source": "en", "target": "ru", "text": "Order SKU-12345-ABC is back in stock.", "expected_note": "product code"},
+  {"id": "lit_16", "source": "en", "target": "ru", "text": "License plate ABC-1234 was captured on camera.", "expected_note": "license plate"},
+  {"id": "lit_17", "source": "en", "target": "ru", "text": "The package weighs 24.5 kg and costs 99 EUR.", "expected_note": "mixed numbers"},
+  {"id": "lit_18", "source": "en", "target": "ru", "text": "Our support team is available 24/7.", "expected_note": "24/7"},
+  {"id": "lit_19", "source": "en", "target": "ru", "text": "Version 3.2.1 was released on 2025-01-15.", "expected_note": "version + date"},
+  {"id": "lit_20", "source": "en", "target": "ru", "text": "Thank you for your prompt response.", "expected_note": "no numbers"}
+]

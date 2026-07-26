@@ -1,0 +1,17 @@
+[
+  {"id": "dq_01", "text": "Какие у вас условия доставки?", "in_library": true, "expected_gap": false},
+  {"id": "dq_02", "text": "Сколько стоит ваш премиум-тариф?", "in_library": true, "expected_gap": false},
+  {"id": "dq_03", "text": "Какой срок гарантии на оборудование?", "in_library": true, "expected_gap": false},
+  {"id": "dq_04", "text": "Работаете ли вы с НДС?", "in_library": true, "expected_gap": false},
+  {"id": "dq_05", "text": "Какие документы нужны для заключения договора?", "in_library": true, "expected_gap": false},
+  {"id": "dq_06", "text": "Есть ли у вас скидки при оптовом заказе?", "in_library": true, "expected_gap": false},
+  {"id": "dq_07", "text": "Как происходит возврат товара?", "in_library": true, "expected_gap": false},
+  {"id": "dq_08", "text": "Можно ли оплатить картой?", "in_library": true, "expected_gap": false},
+  {"id": "dq_09", "text": "Предоставляете ли вы обучение персонала?", "in_library": true, "expected_gap": false},
+  {"id": "dq_10", "text": "Как часто обновляется прайс-лист?", "in_library": true, "expected_gap": false},
+  {"id": "dq_11", "text": "Какая у вас политика в отношении персональных данных в ЕС?", "in_library": false, "expected_gap": true},
+  {"id": "dq_12", "text": "Можете ли вы провести аудит моей текущей ИТ-инфраструктуры?", "in_library": false, "expected_gap": true},
+  {"id": "dq_13", "text": "Есть ли у вас интеграция с SAP ERP?", "in_library": false, "expected_gap": true},
+  {"id": "dq_14", "text": "Какой SLA вы гарантируете для критических инцидентов?", "in_library": false, "expected_gap": true},
+  {"id": "dq_15", "text": "Проводите ли вы калибровку лабораторного оборудования на месте?", "in_library": false, "expected_gap": true}
+]
