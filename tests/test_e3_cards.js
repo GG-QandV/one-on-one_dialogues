@@ -9,6 +9,14 @@ const assert = require('node:assert');
 const { describe, it } = require('node:test');
 
 // ====== Минимальный DOM-шим ======
+let _domReplaceCount = 0;
+let _domRemoveCount = 0;
+
+function resetDomCounters() {
+  _domReplaceCount = 0;
+  _domRemoveCount = 0;
+}
+
 let elId = 0;
 function makeEl(tag) {
   const id = ++elId;
@@ -23,7 +31,6 @@ function makeEl(tag) {
     _listeners: {},
     _scrollTop: 0, _scrollHeight: 100, _clientHeight: 80,
     get innerHTML() {
-      // Возвращаем innerHTML, либо рендерим из children для escapeHtml
       if (this._innerHTML) return this._innerHTML;
       return this.children.map(c => {
         if (c.nodeType === 3) return c.textContent;
@@ -41,12 +48,14 @@ function makeEl(tag) {
       return child;
     },
     removeChild(child) {
+      _domRemoveCount++;
       const idx = this.children.indexOf(child);
       if (idx !== -1) { this.children.splice(idx, 1); }
       child.parentNode = null;
       return child;
     },
     replaceChild(newChild, oldChild) {
+      _domReplaceCount++;
       const idx = this.children.indexOf(oldChild);
       if (idx !== -1) {
         newChild.parentNode = this;
@@ -59,7 +68,6 @@ function makeEl(tag) {
     set scrollTop(v) { this._scrollTop = v; },
     get scrollHeight() { return this._scrollHeight; },
     get clientHeight() { return this._clientHeight; },
-    // Для querySelector-like поиска
     querySelector(sel) {
       if (sel.startsWith('.')) {
         const cls = sel.slice(1);
@@ -341,6 +349,113 @@ describe('E3 — tab_translation.js', () => {
       const header = el.children[0];
       assert.ok(header.innerHTML.includes('profile--confidential'));
       assert.ok(header.innerHTML.includes('закрытый профиль'));
+    });
+
+    it('reverse order: translated before final does not lose card', () => {
+      resetDomCounters();
+      const container = dom.createElement('div');
+      const subs = {};
+      const stream = {
+        _segments: [
+          { id: 'seg_partial', role: 'meeting', tStartMs: 1000,
+            rawText: null, draftText: 'черновик',
+            lang: 'ES', langConflict: false,
+            privacyProfile: 'open', targetLang: 'RU',
+            status: { stt: 'pending', translation: 'pending' },
+            sttError: null, translationError: null,
+            superseded: false, orphan: false,
+            track: 'fast', draftDelay: '0.9', translationDelay: '?' },
+        ],
+        getState() { return { segments: this._segments }; },
+        subscribe(event, handler) {
+          subs[event] = handler;
+          return () => delete subs[event];
+        },
+      };
+      const cards = exported.createCards({ container, stream });
+      cards.mount();
+      assert.strictEqual(container.children[0].children.length, 1,
+        'partial card should render initially');
+
+      // 1. translated arrives BEFORE final for a different segment_id
+      // Mock: E2 marks partial as superseded, adds the accurate segment
+      stream._segments[0].superseded = true;
+      stream._segments.push({
+        id: 'seg_accurate', role: 'meeting', tStartMs: 1000,
+        rawText: 'Hola', draftText: null,
+        translation: 'Привет',
+        lang: 'ES', langConflict: false,
+        privacyProfile: 'open', targetLang: 'RU',
+        status: { stt: 'done', translation: 'done' },
+        sttError: null, translationError: null,
+        superseded: false, orphan: false,
+        track: 'accurate', draftDelay: '?', translationDelay: '2.8',
+      });
+      // Simulate translated event with superseded_ids (as real E2 sends)
+      subs['segment.translated']({
+        segment_id: 'seg_accurate',
+        superseded_ids: ['seg_partial'],
+      });
+
+      // E3 should remove the superseded partial and show accurate card
+      // or at minimum not crash
+      assert.strictEqual(container.children[0].children.length, 1,
+        'superseded partial removed, accurate card should exist');
+
+      // 2. Now final arrives — E3 should not crash
+      subs['segment.final']({ segment_id: 'seg_accurate' });
+      assert.strictEqual(container.children[0].children.length, 1,
+        'accurate card should remain after redundant final event');
+
+      cards.unmount();
+    });
+
+    it('translation event re-renders single card (not whole list)', () => {
+      resetDomCounters();
+      const container = dom.createElement('div');
+      const subs = {};
+      const stream = {
+        _segments: [
+          { id: 'seg_1', role: 'meeting', tStartMs: 1000,
+            rawText: 'Hello', draftText: 'Привет',
+            lang: 'EN', langConflict: false,
+            privacyProfile: 'open', targetLang: 'RU',
+            status: { stt: 'done', translation: 'pending' },
+            sttError: null, translationError: null,
+            superseded: false, orphan: false,
+            draftDelay: '0.9', translationDelay: '?' },
+          { id: 'seg_2', role: 'microphone', tStartMs: 2000,
+            rawText: 'World', draftText: 'Мир',
+            lang: 'EN', langConflict: false,
+            privacyProfile: 'open', targetLang: 'RU',
+            status: { stt: 'done', translation: 'pending' },
+            sttError: null, translationError: null,
+            superseded: false, orphan: false,
+            draftDelay: '0.8', translationDelay: '?' },
+        ],
+        getState() { return { segments: this._segments }; },
+        subscribe(event, handler) {
+          subs[event] = handler;
+          return () => delete subs[event];
+        },
+      };
+      const cards = exported.createCards({ container, stream });
+      cards.mount();
+
+      const initialReplaceCount = _domReplaceCount;
+
+      // Simulate translation arriving for seg_1 only
+      stream._segments[0].translation = 'Здравствуйте';
+      stream._segments[0].status.translation = 'done';
+      stream._segments[0].translationDelay = '2.5';
+      subs['segment.translated']({ segment_id: 'seg_1' });
+
+      // Only one replaceChild should happen (for seg_1, not seg_2)
+      const extraOps = _domReplaceCount - initialReplaceCount;
+      assert.strictEqual(extraOps, 1,
+        `expected 1 replaceChild for one translated event, got ${extraOps}`);
+
+      cards.unmount();
     });
 
     it('superseded segment is removed from DOM', () => {

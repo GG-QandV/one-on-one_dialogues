@@ -4,7 +4,19 @@
  *
  * Зависит от: E2 (stream.js) — поставщик состояния сегментов.
  * Этот модуль ТОЛЬКО отрисовывает готовые данные, не имеет сети и состояния.
+ *
+ * Известные gaps на стороне E2 (stream.js), зафиксированные при приёмке E3:
+ * 1. translationDelay не заполняется — E2._handleFinal/_handleTranslated
+ *    не проставляют это поле. E3 показывает заглушку '?'. Контракт E3 п. 4
+ *    требует отображения задержки проверенного перевода.
+ * 2. langNote не заполняется — E2 не передаёт note из LanguageDecision.
+ *    Контракт E3 п. 6 требует подсказки при конфликте языков.
+ * 3. segment.translated, пришедший до segment.final для того же segment_id,
+ *    теряет данные перевода (E2._handleTranslated делает return при
+ *    отсутствии сегмента в Map). E3 корректно не показывает перевод,
+ *    но перевод не придёт повторно — E3 останется без финального текста.
  */
+
 
 const ROLE_LABELS = {
   meeting: 'Клиент',
@@ -180,6 +192,9 @@ function createCards({ container, stream, formatTime: ft }) {
   function handleEvent(data) {
     const id = data.segment_id || data.utterance_id;
     if (id) _sync(id);
+    if (Array.isArray(data.superseded_ids)) {
+      data.superseded_ids.forEach(sid => _sync(sid));
+    }
   }
 
   function handlePrivacyChange() {
