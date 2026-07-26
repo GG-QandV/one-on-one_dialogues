@@ -1,161 +1,190 @@
 speech-local/
-├── README.md
-├── LICENSE
-├── pyproject.toml
-├── .gitignore
-├── .env.example                          # шаблон; реальный .env НЕ коммитится
-├── config.example.toml
-├── INTERFACES.md                         # блок A1: сигнатуры межмодульных вызовов
-├── SPEC_speech_local_v2.md               # спецификация (копия/симлинк)
-├── ROADMAP_speech_local_v2.md            # роадмап (копия/симлинк)
+├── README.md                          [   0B]  # landing / overview
+├── LICENSE                            [   0B]
+├── pyproject.toml                     [   0B]  # project metadata
+├── .gitignore                         [ 167B]
+├── .env.example                       [   0B]  # шаблон; реальный .env НЕ коммитится
+├── config.example.toml                [   0B]
+├── INTERFACES.md                      [  34K]  # блок A1: сигнатуры межмодульных вызовов
+├── TREE_speech_local.txt              [   0B]  # авто-дерево (этот файл)
 │
-├── CONTRACTS/                            # блок A2: файл-задание на каждую задачу
-│   ├── README.md
-│   ├── B1_config.md
-│   ├── B4_db.md
-│   ├── B5_queue.md
-│   ├── C1_pipewire_discovery.md
-│   ├── C2_capture.md
-│   ├── C3_normalizer.md
-│   ├── C4_whisper_runner.md
-│   ├── C5_vad_segmentation.md
-│   ├── C6_whisper_parser.md
-│   ├── D1_provider_interfaces.md
-│   ├── D2_gemini_text.md
-│   ├── D3_claude_text.md
-│   ├── D5_openai_realtime.md
-│   ├── D8_supersede.md
-│   ├── E_ui.md
-│   ├── F_resilience.md
-│   ├── G_security_delivery_export.md
-│   ├── I_drafts.md
-│   └── J_privacy.md
+├── CONTRACTS/                         [4.0K]  # блок A2: файл-задание на каждую задачу
+│   ├── README.md                           [8.2K]
+│   ├── B1_config.md                        [  11K]
+│   ├── B3_models.md                        [9.9K]
+│   ├── B4_db.md                            [   0B]
+│   ├── B5_queue.md                         [   0B]
+│   ├── C1_pipewire_discovery.md            [   0B]
+│   ├── C2_capture.md                       [   0B]
+│   ├── C3_normalizer.md                    [   0B]
+│   ├── C4_whisper_runner.md                [   0B]
+│   ├── C5_vad_segmentation.md              [   0B]
+│   ├── C6_whisper_parser.md                [8.2K]
+│   ├── C8_language.md                      [5.6K]
+│   ├── D1_provider_interfaces.md           [  10K]
+│   ├── D2_gemini_text.md                   [8.4K]
+│   ├── D3_claude_text.md                   [  10K]
+│   ├── D4_prompts.md                       [  16K]
+│   ├── D5_openai_realtime.md               [   0B]
+│   ├── D6_context.md                       [8.6K]
+│   ├── D7_offline.md                       [  10K]
+│   ├── D8_supersede.md                     [   0B]
+│   ├── E1_ui_server.md                     [  11K]
+│   ├── E2_ui_client_stream.md              [  10K]
+│   ├── E3_live_cards.md                    [  10K]
+│   ├── F1_watchdog_memory.md               [  11K]
+│   ├── G1_log_redactor.md                  [  11K]
+│   ├── G2_byok_keystore.md                 [  10K]
+│   ├── G3_clipboard.md                     [9.5K]
+│   ├── G4_exports.md                       [  10K]
+│   ├── H2_acceptance.md                    [  14K]
+│   ├── H6_readme.md                        [  13K]
+│   ├── I1_drafts_library.md                [  10K]
+│   ├── I2_drafts_provider.md               [  13K]
+│   ├── I3_drafts_trigger.md                [  10K]
+│   └── I4_drafts_translate.md              [  10K]
 │
-├── systemd/
-│   ├── speech-gateway.service
-│   ├── speech-watchdog.service
-│   └── speech.env.example                # EnvironmentFile, права 0600
+├── systemd/                           [4.0K]
+│   ├── speech-gateway.service              [   0B]
+│   ├── speech-watchdog.service             [   0B]
+│   └── speech.env.example                  [   0B]  # EnvironmentFile, права 0600
 │
-├── scripts/
-│   ├── install_whispercpp.sh
-│   ├── download_model.sh
-│   ├── create_pipewire_sources.sh
-│   ├── diagnose_hardware.sh              # задача C0: замеры на живом железе
-│   └── check_no_stubs.sh                 # задача A5: CI-проверка честности
+├── scripts/                           [4.0K]
+│   ├── acceptance.py                       [  27K]  # H2: приёмочные тесты
+│   ├── install_whispercpp.sh               [   0B]
+│   ├── download_model.sh                   [   0B]
+│   ├── create_pipewire_sources.sh          [   0B]
+│   ├── diagnose_hardware.sh                [   0B]  # C0: замеры на живом железе
+│   └── check_no_stubs.sh                   [   0B]  # A5: CI-проверка честности
 │
-├── migrations/
-│   ├── 001_initial.sql
-│   ├── 002_privacy_profile.sql
-│   ├── 003_draft_answers.sql
-│   └── README.md
+├── migrations/                        [4.0K]
+│   ├── 001_initial.sql                     [  11K]
+│   ├── 002_privacy_profile.sql             [   0B]
+│   ├── 003_draft_answers.sql               [   0B]
+│   └── README.md                           [   0B]
 │
-├── app/
-│   ├── __init__.py
-│   ├── main.py                           # точка входа, lifecycle, роуты
-│   ├── config.py                         # B1: загрузка TOML, валидация
-│   ├── models.py                         # B3: типы записей
-│   ├── db.py                             # B4: WAL, единый writer, инварианты
-│   ├── queue.py                          # B5: задачи, backoff, идемпотентность
-│   ├── privacy.py                        # J1: профили, матрица, fencing
-│   ├── errors.py                         # общие типы исключений
-│   ├── logging_setup.py                  # подключение LogRedactor ко всем логгерам
-│   │
-│   ├── audio/
-│   │   ├── __init__.py
-│   │   ├── discovery.py                  # C1: wpctl / pw-dump
-│   │   ├── capture.py                    # C2: два независимых потока
-│   │   ├── normalizer.py                 # C3: FFmpeg -> 16k mono s16le
-│   │   ├── vad.py                        # C5a: детект речи
-│   │   └── segmenter.py                  # C5b/C5c: сегменты по паузе, частичные
-│   │
-│   ├── stt/
-│   │   ├── __init__.py
-│   │   ├── runner.py                     # C4a: whisper-cli, процесс
-│   │   ├── scheduler.py                  # C4b: общая очередь двух потоков
-│   │   ├── parser.py                     # C6: JSON-вывод, avg_logprob
-│   │   ├── fallback.py                   # C7: base -> tiny
-│   │   └── language.py                   # C8: конфликт заданного/детектированного
-│   │
-│   ├── translation/
-│   │   ├── __init__.py
-│   │   ├── base.py                       # D1: TranslationProvider, RealtimeProvider
-│   │   ├── prompts.py                    # D4: live_literal / live_safe / post_clean
-│   │   ├── context.py                    # D6: динамическое окно 4/3/2
-│   │   ├── supersede.py                  # D8: замещение черновика проверенным
-│   │   ├── offline.py                    # D7: очередь и догон при недоступности
-│   │   └── providers/
-│   │       ├── __init__.py
-│   │       ├── gemini_text.py            # D2
-│   │       ├── claude_text.py            # D3
-│   │       ├── openai_realtime.py        # D5
-│   │       └── custom_http.py
-│   │
-│   ├── drafts/
-│   │   ├── __init__.py
-│   │   ├── library.py                    # I1: библиотека фактов, разделы, токены
-│   │   ├── provider.py                   # I2: DraftProvider, prompt caching
-│   │   ├── trigger.py                    # I3: детект вопроса клиента
-│   │   ├── translate.py                  # I4: перевод черновика live_literal
-│   │   └── guardrails.py                 # I5: изоляция полей, запрет автодоставки
-│   │
-│   ├── delivery/
-│   │   ├── __init__.py
-│   │   ├── clipboard.py                  # G3: xclip, буфер обмена
-│   │   └── hotkey.py                     # G3: горячая клавиша
-│   │
-│   ├── exports/
-│   │   ├── __init__.py
-│   │   ├── txt.py                        # G4
-│   │   ├── json_export.py                # G4: полный audit-след
-│   │   └── subtitles.py                  # G5: SRT / VTT
-│   │
-│   ├── security/
-│   │   ├── __init__.py
-│   │   ├── redactor.py                   # G1: LogRedactor
-│   │   └── byok.py                       # G2: session worker, TTL, Revoke
-│   │
-│   ├── watchdog/
-│   │   ├── __init__.py
-│   │   ├── memory.py                     # F1: cgroup memory.current
-│   │   └── degradation.py                # F2a/F2b: каскад деградации
-│   │
-│   └── ui/
-│       ├── __init__.py
-│       ├── server.py                     # E1: SSE / WebSocket
-│       ├── routes.py                     # HTTP-роуты панели
-│       └── static/
-│           ├── index.html
-│           ├── css/
-│           │   └── app.css
-│           └── js/
-│               ├── sse_client.js         # E2: подписка, reconnect, дедупликация
-│               ├── tab_translation.js    # E3: вкладка «Перевод»
-│               ├── tab_drafts.js         # E4: вкладка «Черновики ответов»
-│               ├── tab_diagnostics.js    # E5: вкладка «Диагностика»
-│               ├── topbar.js             # E6: профиль, статусы, языки
-│               ├── settings.js           # E7: панель настроек
-│               └── history.js            # E8: история сессий
+├── docs/                              [4.0K]
+│   ├── ROADMAP_speech_local_v2.md          [  38K]
+│   └── SPEC_speech_local_v2.md             [  40K]
 │
-├── data/                                 # runtime, в .gitignore
-│   ├── sessions/                         # аудиофайлы по сессиям
-│   ├── library/                          # библиотека фактов
-│   └── speech.db
+├── app/                               [4.0K]
+│   ├── __init__.py                         [   0B]
+│   ├── main.py                             [  18K]  # точка входа, lifecycle, роуты
+│   ├── config.py                           [  27K]  # B1: загрузка TOML, валидация
+│   ├── models.py                           [  11K]  # B3: типы записей
+│   ├── db.py                               [  19K]  # B4: WAL, единый writer, инварианты
+│   ├── queue.py                            [  25K]  # B5: задачи, backoff, идемпотентность
+│   ├── privacy.py                          [  16K]  # J1: профили, матрица, fencing
+│   ├── errors.py                           [5.8K]  # общие типы исключений
+│   ├── logging_setup.py                    [   0B]  # LogRedactor для всех логгеров
+│   │
+│   ├── audio/                         [4.0K]
+│   │   ├── __init__.py                       [   0B]
+│   │   ├── discovery.py                      [  12K]  # C1: wpctl / pw-dump
+│   │   ├── capture.py                        [  19K]  # C2: два независимых потока
+│   │   ├── normalizer.py                     [   0B]  # C3: FFmpeg -> 16k mono s16le
+│   │   ├── pcm.py                            [7.0K]  # PCM-буфер, склейка фрагментов
+│   │   ├── vad.py                            [  14K]  # C5a: детект речи
+│   │   ├── segmenter.py                      [  19K]  # C5b/C5c: сегменты по паузе, частичные
+│   │
+│   ├── stt/                           [4.0K]
+│   │   ├── __init__.py                       [   0B]
+│   │   ├── runner.py                         [6.4K]  # C4a: whisper-cli, процесс
+│   │   ├── scheduler.py                      [9.8K]  # C4b: общая очередь двух потоков
+│   │   ├── parser.py                         [  13K]  # C6: JSON-вывод, avg_logprob
+│   │   ├── fallback.py                       [4.8K]  # C7: base -> tiny
+│   │   ├── language.py                       [4.9K]  # C8: конфликт заданного/детектированного
+│   │
+│   ├── translation/                   [4.0K]
+│   │   ├── __init__.py                       [   0B]
+│   │   ├── base.py                           [5.1K]  # D1: TranslationProvider, RealtimeProvider
+│   │   ├── prompts.py                        [  18K]  # D4: live_literal / live_safe / post_clean
+│   │   ├── context.py                        [   0B]  # D6: динамическое окно 4/3/2
+│   │   ├── supersede.py                      [7.5K]  # D8: замещение черновика проверенным
+│   │   ├── offline.py                        [   0B]  # D7: очередь и догон при недоступности
+│   │   └── providers/                 [4.0K]
+│   │       ├── __init__.py                     [   0B]
+│   │       ├── gemini_text.py                  [   0B]  # D2
+│   │       ├── claude_text.py                  [   0B]  # D3
+│   │       ├── openai_realtime.py              [  15K]  # D5
+│   │       ├── custom_http.py                  [   0B]
+│   │
+│   ├── drafts/                        [4.0K]
+│   │   ├── __init__.py                       [   0B]
+│   │   ├── library.py                        [   0B]  # I1: библиотека фактов, разделы, токены
+│   │   ├── provider.py                       [   0B]  # I2: DraftProvider, prompt caching
+│   │   ├── trigger.py                        [   0B]  # I3: детект вопроса клиента
+│   │   ├── translate.py                      [   0B]  # I4: перевод черновика live_literal
+│   │   ├── guardrails.py                     [  11K]  # I5: изоляция полей, запрет автодоставки
+│   │
+│   ├── delivery/                      [4.0K]
+│   │   ├── __init__.py                       [   0B]
+│   │   ├── clipboard.py                      [3.1K]  # G3: xclip, буфер обмена
+│   │   ├── hotkey.py                         [   0B]  # G3: горячая клавиша
+│   │
+│   ├── exports/                       [4.0K]
+│   │   ├── __init__.py                       [   0B]
+│   │   ├── txt.py                            [ 940B]  # G4
+│   │   ├── json_export.py                    [1.7K]  # G4: полный audit-след
+│   │   ├── subtitles.py                      [1.8K]  # G5: SRT / VTT
+│   │
+│   ├── security/                      [4.0K]
+│   │   ├── __init__.py                       [   0B]
+│   │   ├── redactor.py                       [   0B]  # G1: LogRedactor
+│   │   ├── byok.py                           [   0B]  # G2: session worker, TTL, Revoke
+│   │
+│   ├── watchdog/                      [4.0K]
+│   │   ├── __init__.py                       [   0B]
+│   │   ├── memory.py                         [   0B]  # F1: cgroup memory.current
+│   │   ├── degradation.py                    [  11K]  # F2a/F2b: каскад деградации
+│   │
+│   └── ui/                            [4.0K]
+│       ├── __init__.py                       [   0B]
+│       ├── server.py                         [   0B]  # E1: SSE / WebSocket
+│       ├── routes.py                         [   0B]  # HTTP-роуты панели
+│       ├── index.html                 [   0B]
+│       ├── css/                       [4.0K]
+│       │   ├── app.css                [   0B]
+│       │   └── cards.css              [2.2K]  # E3: live-cards
+│       └── js/                        [4.0K]
+│           ├── sse_client.js                   [   0B]  # E2: подписка, reconnect, дедупликация
+│           ├── stream.js                       [  14K]  # E3: stream UI
+│           ├── tab_translation.js              [7.9K]  # E3: вкладка «Перевод»
+│           ├── tab_drafts.js                   [   0B]  # E4: вкладка «Черновики ответов»
+│           ├── tab_diagnostics.js              [   0B]  # E5: вкладка «Диагностика»
+│           ├── topbar.js                       [   0B]  # E6: профиль, статусы, языки
+│           ├── settings.js                     [   0B]  # E7: панель настроек
+│           └── history.js                      [   0B]  # E8: история сессий
 │
-└── tests/
-    ├── __init__.py
-    ├── conftest.py
-    ├── fixtures/
-    │   ├── audio/                        # эталонные фрагменты EN/ES/RU/UA/PL
-    │   ├── literal_20.json               # 20 фрагментов: числа, даты, имена, URL
-    │   └── draft_questions_15.json       # 15 вопросов, часть вне библиотеки
-    ├── test_db_invariants.py             # неизменяемость raw_text, privacy_profile
-    ├── test_queue_recovery.py
-    ├── test_privacy_isolation.py         # J4: перехват трафика
-    ├── test_vad_segmentation.py
-    ├── test_whisper_parser.py
-    ├── test_prompt_modes.py              # live_literal не искажает факты
-    ├── test_supersede.py
-    ├── test_draft_guardrails.py
-    ├── test_log_redaction.py
-    ├── test_exports.py
-    └── test_latency_budget.py            # H3: медиана по 50 репликам
+├── data/                              [—]  # runtime, в .gitignore
+│   ├── sessions/                      [—]  # аудиофайлы по сессиям
+│   ├── library/                       [—]  # библиотека фактов
+│   └── speech.db                      [—]
+│
+└── tests/                             [4.0K]
+    ├── __init__.py                    [   0B]
+    ├── conftest.py                    [   0B]
+    ├── acceptance/                    [4.0K]  # H2: директория приёмочных
+    ├── fixtures/                      [4.0K]
+    │   ├── audio/                     [4.0K]  # эталонные фрагменты EN/ES/RU/UA/PL
+    │   ├── literal_20.json            [   0B]  # 20 фрагментов: числа, даты, имена, URL
+    │   ├── draft_questions_15.json    [   0B]  # 15 вопросов, часть вне библиотеки
+    │   ├── drift_20.json              [9.1K]  # фикстура drift 20%
+    │   └── prompts_spec_11.json       [4.0K]  # фикстура спецификации промптов
+    ├── test_db_invariants.py               [   0B]  # неизменяемость raw_text, privacy_profile
+    ├── test_queue_recovery.py              [   0B]
+    ├── test_privacy_isolation.py           [7.7K]  # J4: перехват трафика
+    ├── test_vad_segmentation.py            [   0B]
+    ├── test_whisper_parser.py              [  11K]
+    ├── test_prompt_modes.py                [  13K]  # live_literal не искажает факты
+    ├── test_supersede.py                   [   0B]
+    ├── test_draft_guardrails.py            [   0B]
+    ├── test_log_redaction.py               [   0B]
+    ├── test_exports.py                     [7.8K]
+    ├── test_latency_budget.py              [7.6K]  # H3: медиана по 50 репликам
+    ├── test_clipboard.py                   [2.6K]
+    ├── test_config.py                      [  23K]
+    ├── test_drift_20.py                    [1.8K]
+    ├── test_language_resolution.py         [3.4K]
+    └── test_models.py                      [  11K]
+
