@@ -2,7 +2,7 @@
  * tab_translation.js — живая лента реплик вкладки «Перевод».
  * Задача E3 роадмапа.
  *
- * Зависит от: E2 (sse_client.js) — поставщик событий сегментов.
+ * Зависит от: E2 (stream.js) — поставщик состояния сегментов.
  * Этот модуль ТОЛЬКО отрисовывает готовые данные, не имеет сети и состояния.
  */
 
@@ -38,6 +38,30 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+function segmentToCardData(seg) {
+  return {
+    segmentId: seg.id,
+    role: seg.role,
+    tStartMs: seg.tStartMs,
+    rawText: seg.rawText || '',
+    translationText: seg.translation || null,
+    draftText: seg.draftText || null,
+    draftDelay: seg.draftDelay || '?',
+    translationDelay: seg.translationDelay || '?',
+    lang: seg.lang || '??',
+    langConflict: seg.langConflict || false,
+    langNote: seg.langNote || '',
+    privacyProfile: seg.privacyProfile || 'open',
+    targetLang: seg.targetLang || '??',
+    sttStatus: seg.status ? seg.status.stt : 'pending',
+    sttError: seg.sttError || null,
+    translationStatus: seg.status ? seg.status.translation : 'pending',
+    translationError: seg.translationError || null,
+    orphan: seg.orphan || false,
+    superseded: seg.superseded || false,
+  };
+}
+
 function createCardElement(data) {
   const article = document.createElement('article');
   article.className = 'card';
@@ -64,19 +88,20 @@ function createCardElement(data) {
     article.appendChild(p);
   }
 
-  if (data.translationText || data.draftText) {
+  if (data.orphan && !data.translationText) {
     const p = document.createElement('p');
-
-    if (data.draftText && !data.translationText) {
-      p.className = 'translation translation--draft';
-      p.textContent = `${data.targetLang || '??'} \u00b7 \u0447\u0435\u0440\u043d\u043e\u0432\u0438\u043a (${data.draftDelay}s)`;
-    } else if (data.orphan) {
-      p.className = 'translation translation--orphan';
-      p.textContent = data.translationText || '\u043d\u0435 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0451\u043d \u0442\u043e\u0447\u043d\u044b\u043c \u0442\u0440\u0435\u043a\u043e\u043c';
-    } else {
-      p.className = 'translation translation--verified';
-      p.textContent = `${data.targetLang || '??'} \u00b7 \u043f\u0440\u043e\u0432\u0435\u0440\u0435\u043d\u043e (${data.translationDelay}s)`;
-    }
+    p.className = 'translation translation--orphan';
+    p.textContent = data.translationText || '\u043d\u0435 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0451\u043d \u0442\u043e\u0447\u043d\u044b\u043c \u0442\u0440\u0435\u043a\u043e\u043c';
+    article.appendChild(p);
+  } else if (data.draftText && !data.translationText) {
+    const p = document.createElement('p');
+    p.className = 'translation translation--draft';
+    p.textContent = `${data.targetLang || '??'} \u00b7 \u0447\u0435\u0440\u043d\u043e\u0432\u0438\u043a (${data.draftDelay}s)`;
+    article.appendChild(p);
+  } else if (data.translationText) {
+    const p = document.createElement('p');
+    p.className = 'translation translation--verified';
+    p.textContent = `${data.targetLang || '??'} \u00b7 \u043f\u0440\u043e\u0432\u0435\u0440\u0435\u043d\u043e (${data.translationDelay}s)`;
     article.appendChild(p);
   }
 
@@ -105,36 +130,34 @@ function createCards({ container, stream, formatTime: ft }) {
   let isAtBottom = true;
   let newCount = 0;
   let cards = [];
+  let _unsubs = [];
 
   function mount() {
     container.appendChild(scrollContainer);
+    scrollContainer.addEventListener('scroll', onScroll);
 
     if (stream && stream.getState) {
       const state = stream.getState();
       if (state && state.segments) {
-        state.segments.forEach(addCardFromData);
+        state.segments.forEach(seg => addCardFromData(segmentToCardData(seg)));
       }
-    }
 
-    scrollContainer.addEventListener('scroll', onScroll);
-
-    if (stream && stream.on) {
-      stream.on('segment.partial', handlePartial);
-      stream.on('segment.final', handleFinal);
-      stream.on('segment.translated', handleTranslated);
-      stream.on('privacy.changed', handlePrivacyChange);
+      _unsubs = [
+        stream.subscribe('segment.partial', handleEvent),
+        stream.subscribe('segment.final', handleEvent),
+        stream.subscribe('segment.translated', handleEvent),
+        stream.subscribe('privacy.changed', handlePrivacyChange),
+      ];
     }
   }
 
   function unmount() {
-    if (stream && stream.off) {
-      stream.off('segment.partial', handlePartial);
-      stream.off('segment.final', handleFinal);
-      stream.off('segment.translated', handleTranslated);
-      stream.off('privacy.changed', handlePrivacyChange);
-    }
+    _unsubs.forEach(fn => fn());
+    _unsubs = [];
     scrollContainer.removeEventListener('scroll', onScroll);
-    container.removeChild(scrollContainer);
+    if (scrollContainer.parentNode) {
+      scrollContainer.parentNode.removeChild(scrollContainer);
+    }
   }
 
   function onScroll() {
@@ -154,6 +177,53 @@ function createCards({ container, stream, formatTime: ft }) {
     newCount = 0;
   }
 
+  function handleEvent(data) {
+    const id = data.segment_id || data.utterance_id;
+    if (id) _sync(id);
+  }
+
+  function handlePrivacyChange() {
+    const state = stream.getState();
+    if (!state || !state.segments) return;
+    for (const seg of state.segments) {
+      const existing = cards.find(c => c.data.segmentId === seg.id);
+      if (existing) {
+        existing.data.privacyProfile = seg.privacyProfile || 'open';
+        const newEl = createCardElement(existing.data);
+        scrollContainer.replaceChild(newEl, existing.el);
+        existing.el = newEl;
+      }
+    }
+  }
+
+  function _sync(segmentId) {
+    const state = stream.getState();
+    if (!state || !state.segments) return;
+    const seg = state.segments.find(s => s.id === segmentId);
+    if (!seg) return;
+
+    if (seg.superseded) {
+      const idx = cards.findIndex(c => c.data.segmentId === segmentId);
+      if (idx !== -1) {
+        const entry = cards.splice(idx, 1)[0];
+        if (entry.el.parentNode) entry.el.parentNode.removeChild(entry.el);
+      }
+      return;
+    }
+
+    const data = segmentToCardData(seg);
+    const existing = cards.find(c => c.data.segmentId === segmentId);
+
+    if (existing) {
+      Object.assign(existing.data, data);
+      const newEl = createCardElement(existing.data);
+      scrollContainer.replaceChild(newEl, existing.el);
+      existing.el = newEl;
+    } else {
+      addCardFromData(data);
+    }
+  }
+
   function addCardFromData(data) {
     if (data.superseded) return;
     if (currentFilter !== 'all' && data.role !== currentFilter) return;
@@ -171,71 +241,6 @@ function createCards({ container, stream, formatTime: ft }) {
     }
   }
 
-  function updateCard(segmentId, updateFn) {
-    const existing = cards.find(c => c.data.segmentId === segmentId);
-    if (!existing) return;
-    updateFn(existing.data);
-    const newEl = createCardElement(existing.data);
-    scrollContainer.replaceChild(newEl, existing.el);
-    existing.el = newEl;
-  }
-
-  function handlePartial(data) {
-    addCardFromData({
-      segmentId: data.utterance_id,
-      role: data.role,
-      tStartMs: data.t_start_ms,
-      rawText: null,
-      draftText: data.text || '',
-      draftDelay: '?',
-      lang: '??',
-      langConflict: false,
-      privacyProfile: 'open',
-      targetLang: '??',
-      sttStatus: 'pending',
-      sttError: null,
-      translationStatus: 'pending',
-      translationError: null,
-    });
-  }
-
-  function handleFinal(data) {
-    updateCard(data.segment_id, d => {
-      Object.assign(d, {
-        role: data.role,
-        tStartMs: data.t_start_ms,
-        rawText: data.raw_text,
-        track: data.track,
-      });
-    });
-  }
-
-  function handleTranslated(data) {
-    updateCard(data.segment_id, d => {
-      Object.assign(d, {
-        translationText: data.translation,
-        translationDelay: '?',
-        translationStatus: 'done',
-      });
-      if (data.superseded_ids) {
-        data.superseded_ids.forEach(id => removeCard(id));
-      }
-    });
-  }
-
-  function removeCard(segmentId) {
-    const idx = cards.findIndex(c => c.data.segmentId === segmentId);
-    if (idx !== -1) {
-      const [entry] = cards.splice(idx, 1);
-      if (entry.el.parentNode) {
-        entry.el.parentNode.removeChild(entry.el);
-      }
-    }
-  }
-
-  function handlePrivacyChange(data) {
-  }
-
   function setFilter(filter) {
     currentFilter = filter;
     scrollContainer.innerHTML = '';
@@ -243,7 +248,7 @@ function createCards({ container, stream, formatTime: ft }) {
     if (stream && stream.getState) {
       const state = stream.getState();
       if (state && state.segments) {
-        state.segments.forEach(addCardFromData);
+        state.segments.forEach(seg => addCardFromData(segmentToCardData(seg)));
       }
     }
     scrollToLatest();

@@ -2,7 +2,7 @@
 
 | | |
 | :-- | :-- |
-| Файл | `app/ui/static/js/sse_client.js` |
+| Файл | `app/ui/static/js/stream.js` |
 | Уровень | Middle |
 | Оценка | 300 LOC, 12 тестов |
 | Зависит от | E1 (`ui/server.py`) |
