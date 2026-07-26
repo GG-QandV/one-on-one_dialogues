@@ -1,0 +1,213 @@
+{
+  "_purpose": "Эталонный набор для detect_drift (D4). 20 пар «оригинал / перевод». Половина — с потерей сущности, половина — корректные переводы, которые НЕ должны давать срабатывания. Ложное срабатывание на негативном случае — такой же провал, как пропуск на позитивном.",
+  "_fields": {
+    "id": "номер случая",
+    "text": "оригинал (req.text)",
+    "translation": "то, что вернула модель",
+    "expect_drift": "ожидается ли хотя бы один Change(type='lost_entity')",
+    "expect_originals": "какие именно значения должны быть перечислены в changes",
+    "why": "что проверяет случай"
+  },
+  "cases": [
+    {
+      "id": 1,
+      "source_language": "ru",
+      "target_language": "en",
+      "text": "Сумма контракта 30 000 евро.",
+      "translation": "The contract amount is 30,000 euros.",
+      "expect_drift": false,
+      "expect_originals": [],
+      "why": "Разное форматирование разрядов — не потеря. Нормализация чисел обязана это покрыть"
+    },
+    {
+      "id": 2,
+      "source_language": "ru",
+      "target_language": "en",
+      "text": "Сумма контракта 30 000 евро.",
+      "translation": "The contract amount is significant.",
+      "expect_drift": true,
+      "expect_originals": ["30000"],
+      "why": "Число исчезло полностью"
+    },
+    {
+      "id": 3,
+      "source_language": "ru",
+      "target_language": "en",
+      "text": "Поставка до 15 марта, оплата 50% авансом.",
+      "translation": "Payment is 50% upfront, delivery by March 15.",
+      "expect_drift": false,
+      "expect_originals": [],
+      "why": "Перестановка чисел в предложении дрейфом не считается"
+    },
+    {
+      "id": 4,
+      "source_language": "ru",
+      "target_language": "en",
+      "text": "Поставка до 15 марта, оплата 50% авансом.",
+      "translation": "Payment is 50% upfront.",
+      "expect_drift": true,
+      "expect_originals": ["15"],
+      "why": "Потеряна дата вместе с половиной предложения"
+    },
+    {
+      "id": 5,
+      "source_language": "en",
+      "target_language": "ru",
+      "text": "See the terms at https://example.com/terms-2026",
+      "translation": "Смотрите условия по ссылке https://example.com/terms-2026",
+      "expect_drift": false,
+      "expect_originals": [],
+      "why": "URL сохранён посимвольно"
+    },
+    {
+      "id": 6,
+      "source_language": "en",
+      "target_language": "ru",
+      "text": "See the terms at https://example.com/terms-2026",
+      "translation": "Смотрите условия на нашем сайте.",
+      "expect_drift": true,
+      "expect_originals": ["https://example.com/terms-2026"],
+      "why": "URL заменён описанием — классический дрейф вежливости"
+    },
+    {
+      "id": 7,
+      "source_language": "ru",
+      "target_language": "en",
+      "text": "Пишите на contracts@example.com до конца недели.",
+      "translation": "Write to contracts@example.com by the end of the week.",
+      "expect_drift": false,
+      "expect_originals": [],
+      "why": "Email сохранён"
+    },
+    {
+      "id": 8,
+      "source_language": "ru",
+      "target_language": "en",
+      "text": "Пишите на contracts@example.com до конца недели.",
+      "translation": "Write to us by the end of the week.",
+      "expect_drift": true,
+      "expect_originals": ["contracts@example.com"],
+      "why": "Email потерян"
+    },
+    {
+      "id": 9,
+      "source_language": "ru",
+      "target_language": "en",
+      "text": "Мы не согласны с пунктом 4.2 договора и просим его пересмотреть до подписания.",
+      "translation": "We disagree with clause 4.2 and ask to revise it before signing.",
+      "expect_drift": false,
+      "expect_originals": [],
+      "why": "Корректный перевод с сохранением артикула пункта"
+    },
+    {
+      "id": 10,
+      "source_language": "ru",
+      "target_language": "en",
+      "text": "Мы не согласны с пунктом 4.2 договора и просим его пересмотреть до подписания.",
+      "translation": "We agree.",
+      "expect_drift": true,
+      "expect_originals": ["4.2"],
+      "why": "Обвал длины + потеря артикула. Смысл перевёрнут отрицанием, но это ловится длиной и числом"
+    },
+    {
+      "id": 11,
+      "source_language": "ru",
+      "target_language": "en",
+      "text": "Артикул BX-4471-A, партия 120 штук.",
+      "translation": "Item BX-4471-A, batch of 120 units.",
+      "expect_drift": false,
+      "expect_originals": [],
+      "why": "Артикул с дефисами сохранён"
+    },
+    {
+      "id": 12,
+      "source_language": "ru",
+      "target_language": "en",
+      "text": "Артикул BX-4471-A, партия 120 штук.",
+      "translation": "Item code as discussed, batch of 120 units.",
+      "expect_drift": true,
+      "expect_originals": ["BX-4471-A"],
+      "why": "Артикул заменён отсылкой"
+    },
+    {
+      "id": 13,
+      "source_language": "es",
+      "target_language": "ru",
+      "text": "El plazo es de 45 días naturales desde la firma.",
+      "translation": "Срок — 45 календарных дней с момента подписания.",
+      "expect_drift": false,
+      "expect_originals": [],
+      "why": "Испанский оригинал, число сохранено"
+    },
+    {
+      "id": 14,
+      "source_language": "es",
+      "target_language": "ru",
+      "text": "El plazo es de 45 días naturales desde la firma.",
+      "translation": "Срок — полтора месяца с момента подписания.",
+      "expect_drift": true,
+      "expect_originals": ["45"],
+      "why": "Число превращено в приблизительную формулировку. Именно этот случай опаснее всего в переговорах"
+    },
+    {
+      "id": 15,
+      "source_language": "ru",
+      "target_language": "en",
+      "text": "Скидка 7,5% при предоплате.",
+      "translation": "A 7.5% discount for prepayment.",
+      "expect_drift": false,
+      "expect_originals": [],
+      "why": "Запятая против точки в дробном числе — не потеря"
+    },
+    {
+      "id": 16,
+      "source_language": "ru",
+      "target_language": "en",
+      "text": "Скидка 7,5% при предоплате.",
+      "translation": "A 7% discount for prepayment.",
+      "expect_drift": true,
+      "expect_originals": ["7.5"],
+      "why": "Число искажено, а не потеряно. Множество перевода не покрывает множество оригинала"
+    },
+    {
+      "id": 17,
+      "source_language": "ru",
+      "target_language": "en",
+      "text": "Иванов подтвердит смету во вторник.",
+      "translation": "Ivanov will confirm the estimate on Tuesday.",
+      "expect_drift": false,
+      "expect_originals": [],
+      "why": "Транслитерация имени. check_names выключена по умолчанию — срабатывания быть не должно"
+    },
+    {
+      "id": 18,
+      "source_language": "ru",
+      "target_language": "en",
+      "text": "Мы обсуждали это подробно на прошлой встрече и договорились вернуться к вопросу после согласования бюджета с финансовым отделом.",
+      "translation": "We discussed it.",
+      "expect_drift": true,
+      "expect_originals": [],
+      "why": "Чисел нет, но перевод короче порога 0.6 — срабатывание по длине, expect_originals пуст"
+    },
+    {
+      "id": 19,
+      "source_language": "ru",
+      "target_language": "en",
+      "text": "Да.",
+      "translation": "Yes.",
+      "expect_drift": false,
+      "expect_originals": [],
+      "why": "Короткая реплика не должна давать срабатывания по длине"
+    },
+    {
+      "id": 20,
+      "source_language": "ru",
+      "target_language": "en",
+      "text": "Итого 12 500 рублей за 3 лицензии до 01.04.2026.",
+      "translation": "Total 12,500 rubles for 3 licenses until 01.04.2026.",
+      "expect_drift": false,
+      "expect_originals": [],
+      "why": "Три сущности разных типов одновременно, все сохранены"
+    }
+  ]
+}
