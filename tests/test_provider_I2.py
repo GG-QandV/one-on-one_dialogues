@@ -10,13 +10,14 @@ from app.drafts.provider import (
     LibraryPort,
 )
 from app.drafts.guardrails import DraftCandidate
+from app.drafts.library import LibraryContext
 from app.translation.base import (
     TranslationRequest,
     TranslationResult,
     TranslationMode,
 )
 from app.privacy import PrivacyController, PrivacyProfile, Capability
-from app.errors import ProviderRateLimited
+from app.errors import ProviderRateLimited, InvariantViolation
 
 
 # --------------------------------------------------------------- fakes
@@ -26,9 +27,15 @@ class FakeLibrary:
         self._text = text
         self.calls: list[str] = []
 
-    async def get_text(self, section_id: str):
-        self.calls.append(section_id)
-        return self._text
+    async def get(self, context_id: str):
+        self.calls.append(context_id)
+        if self._text is None:
+            raise InvariantViolation("library_context_not_found")
+        return LibraryContext(
+            id=context_id, name="test", domain=None,
+            content_text=self._text,
+            token_estimate=10, updated_at="2025-01-01T00:00:00.000",
+        )
 
 
 class FakeProvider:

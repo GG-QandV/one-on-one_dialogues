@@ -12,36 +12,25 @@ I2 отвечает только за первую стрелку.
 from __future__ import annotations
 
 import json
-import logging
-from dataclasses import dataclass, field
-from typing import Any, Optional, Protocol, runtime_checkable
+from dataclasses import dataclass
+from typing import Any, Protocol, runtime_checkable
 
 from app.drafts.guardrails import DraftCandidate
-from app.errors import ProviderError
+from app.drafts.library import LibraryContext
 from app.privacy import Fence
 from app.translation.base import (
+    TranslationMode,
     TranslationProvider,
     TranslationRequest,
-    TranslationMode,
 )
-
-log = logging.getLogger(__name__)
-
 
 # --------------------------------------------------------------------- library port
 
 @runtime_checkable
 class LibraryPort(Protocol):
-    """Минимальный контракт библиотеки фактов (I1), нужный I2.
+    """Минимальный контракт библиотеки фактов (I1), нужный I2."""
 
-    I1 ещё не реализован на момент написания I2. Здесь зафиксирован ТОЛЬКО
-    тот метод, который I2 вызывает. Когда I1 будет готов, его класс обязан
-    удовлетворять этому протоколу (get_text по id раздела -> полный текст
-    или None). Если фактическая сигнатура I1 отличается — правится ЗДЕСЬ,
-    в одном месте, не по всему модулю.
-    """
-
-    async def get_text(self, section_id: str) -> Optional[str]:
+    async def get(self, context_id: str) -> LibraryContext:
         ...
 
 
@@ -117,7 +106,12 @@ class DraftProvider:
             return None
 
         # 2. Библиотека целиком (без RAG, §12)
-        library_text = await self._library.get_text(req.library_section_id)
+        try:
+            ctx = await self._library.get(req.library_section_id)
+        except Exception:  # noqa: BLE001
+            self._snapshot["empty_library"] += 1
+            return None
+        library_text = ctx.content_text
         if not library_text or not library_text.strip():
             self._snapshot["empty_library"] += 1
             return None
