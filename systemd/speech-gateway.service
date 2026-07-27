@@ -1,0 +1,37 @@
+[Unit]
+Description=speech-local — offline-first speech translation & draft assistant
+Documentation=https://github.com/gg/speech-local
+After=network.target pipewire.service
+Wants=pipewire.service
+
+[Service]
+Type=simple
+User=speech-local
+Environment=HOME=/opt/speech-local
+WorkingDirectory=/opt/speech-local
+EnvironmentFile=/opt/speech-local/.env
+ExecStart=/opt/speech-local/.venv/bin/python -m app.main
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+# Memory limits (spec §15)
+MemoryHigh=1750M
+MemoryMax=2000M
+
+# IO
+IOAccounting=yes
+IPAccounting=no
+
+# Security
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=no        # PipeWire audio
+DevicePolicy=auto
+CapabilityBoundingSet=
+SystemCallFilter=@system-service
+
+[Install]
+WantedBy=default.target

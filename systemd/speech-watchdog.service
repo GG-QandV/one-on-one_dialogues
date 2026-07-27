@@ -1,0 +1,20 @@
+[Unit]
+Description=speech-local watchdog — degradation cascade & memory monitor
+After=speech-gateway.service
+BindsTo=speech-gateway.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/true
+ExecStop=/opt/speech-local/.venv/bin/python -c "
+from app.main import main
+import asyncio, signal, os
+# Watchdog logic handled inside the main process degradation cascade.
+# This unit is a placeholder for future external watchdog (tier 2).
+print('speech-local watchdog: monitoring handled by in-process DegradationCascade')
+"
+TimeoutStopSec=10
+
+[Install]
+WantedBy=default.target

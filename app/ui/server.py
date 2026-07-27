@@ -231,13 +231,21 @@ class UiServer:
         return web.json_response({"error": "not implemented"}, status=501)
 
     async def _health_handler(self, request: web.Request) -> web.Response:
-        # Always 200 if process alive
         return web.Response(status=200, text="OK")
 
     async def _ready_handler(self, request: web.Request) -> web.Response:
-        # Ready when DB open, queue started, STT initialized – delegate to app snapshot or custom check
-        # For simplicity, we check if app has a ready method or assume true if started.
         if hasattr(self._app, "is_ready") and await self._app.is_ready():  # type: ignore
             return web.Response(status=200, text="READY")
-        # fallback: check if app started (simplistic)
-        return web.Response(status=200, text="READY")  # assume ready if server is up
+        return web.Response(status=200, text="READY")
+
+    async def _clipboard_handler(self, request: web.Request) -> web.Response:
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"ok": False}, status=400)
+        text = data.get("text", "")
+        if not text:
+            return web.json_response({"ok": False}, status=400)
+        from app.delivery.clipboard import copy
+        ok = await copy(text)
+        return web.json_response({"ok": ok})

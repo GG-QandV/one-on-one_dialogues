@@ -1,0 +1,402 @@
+/* speech-local — main layout */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #222;
+  background: #f5f5f5;
+}
+
+#app {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+/* Topbar */
+#topbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: #fff;
+  border-bottom: 1px solid #e0e0e0;
+  padding: 8px 16px;
+}
+
+/* Tabs */
+#tabs {
+  display: flex;
+  gap: 0;
+  background: #fff;
+  border-bottom: 1px solid #e0e0e0;
+  padding: 0 16px;
+}
+
+.tab {
+  padding: 10px 20px;
+  border: none;
+  background: none;
+  font-size: 14px;
+  color: #666;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.tab:hover {
+  color: #333;
+}
+
+.tab.active {
+  color: #1976d2;
+  border-bottom-color: #1976d2;
+  font-weight: 600;
+}
+
+/* Tab panels */
+.tab-panel {
+  display: none;
+  padding: 12px 16px;
+}
+
+.tab-panel.active {
+  display: block;
+}
+
+/* Settings overlay */
+.panel-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0,0,0,0.3);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.panel-overlay.hidden {
+  display: none;
+}
+
+.panel-overlay .settings-panel {
+  width: 480px;
+  max-width: 100%;
+  height: 100%;
+  background: #fff;
+  overflow-y: auto;
+  padding: 20px;
+  box-shadow: -4px 0 12px rgba(0,0,0,0.15);
+}
+
+/* Topbar specific */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.topbar .profile-switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.topbar .profile-toggle {
+  width: 44px;
+  height: 24px;
+  border-radius: 12px;
+  border: none;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.2s;
+}
+
+.topbar .profile-toggle.open {
+  background: #2e7d32;
+}
+
+.topbar .profile-toggle.confidential {
+  background: #c62828;
+}
+
+.topbar .profile-toggle::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  transition: left 0.2s;
+}
+
+.topbar .profile-toggle.open::after {
+  left: 2px;
+}
+
+.topbar .profile-toggle.confidential::after {
+  left: 22px;
+}
+
+.topbar .profile-toggle:disabled {
+  opacity: 0.5;
+}
+
+.topbar .profile-label {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.topbar .profile-label.open { color: #2e7d32; }
+.topbar .profile-label.confidential { color: #c62828; }
+
+.topbar .lang-indicator {
+  font-size: 12px;
+  color: #666;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.topbar .lang-indicator[data-conflict="true"] {
+  color: #856404;
+  cursor: help;
+}
+
+.topbar .connection-state {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.topbar .connection-state.open { background: #e8f5e9; color: #2e7d32; }
+.topbar .connection-state.connecting { background: #fff3e0; color: #e65100; }
+.topbar .connection-state.reconnecting { background: #fff3e0; color: #e65100; }
+.topbar .connection-state.closed { background: #ffebee; color: #c62828; }
+
+.topbar .degradation-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #fff3cd;
+  color: #856404;
+}
+
+.topbar .degradation-badge.hard {
+  background: #ffebee;
+  color: #c62828;
+}
+
+.topbar .session-controls {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+}
+
+/* Settings */
+.settings-section {
+  margin-bottom: 24px;
+}
+
+.settings-section h3 {
+  font-size: 16px;
+  margin-bottom: 12px;
+  color: #333;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 6px;
+}
+
+.settings-field {
+  margin-bottom: 12px;
+}
+
+.settings-field label {
+  display: block;
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 4px;
+}
+
+.settings-field input,
+.settings-field select,
+.settings-field textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.settings-field textarea {
+  min-height: 120px;
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  font-size: 12px;
+}
+
+.btn {
+  padding: 6px 14px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.btn:hover {
+  background: #f0f0f0;
+}
+
+.btn.primary {
+  background: #1976d2;
+  color: #fff;
+  border-color: #1976d2;
+}
+
+.btn.primary:hover {
+  background: #1565c0;
+}
+
+.btn.danger {
+  color: #c62828;
+  border-color: #c62828;
+}
+
+.btn.small {
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
+/* Diagnostics */
+.diag-section {
+  margin-bottom: 16px;
+}
+
+.diag-section h3 {
+  font-size: 14px;
+  color: #555;
+  margin-bottom: 8px;
+}
+
+.diag-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.diag-item {
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+
+.diag-item .diag-label {
+  font-size: 11px;
+  color: #999;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.diag-item .diag-value {
+  font-size: 18px;
+  font-weight: 600;
+  color: #222;
+  margin-top: 2px;
+}
+
+.diag-item .diag-value.warning { color: #e65100; }
+.diag-item .diag-value.danger { color: #c62828; }
+
+.diag-item .diag-note {
+  font-size: 11px;
+  color: #999;
+  margin-top: 2px;
+}
+
+/* Status badges */
+.badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.badge-ok { background: #e8f5e9; color: #2e7d32; }
+.badge-warn { background: #fff3cd; color: #856404; }
+.badge-err { background: #ffebee; color: #c62828; }
+.badge-info { background: #e3f2fd; color: #1565c0; }
+
+/* Draft cards */
+.draft-card {
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 8px;
+  background: #fff;
+}
+
+.draft-card header {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 6px;
+}
+
+.draft-card .draft-text {
+  margin: 4px 0;
+  color: #222;
+  word-break: break-word;
+}
+
+.draft-card .draft-sources {
+  font-size: 12px;
+  color: #666;
+  margin: 4px 0;
+}
+
+.draft-card .draft-gap-note {
+  font-size: 12px;
+  color: #c62828;
+  margin: 4px 0;
+}
+
+.draft-card .draft-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.draft-card .draft-translated {
+  margin: 4px 0;
+  color: #1a1a1a;
+  font-weight: 500;
+}
+
+/* History */
+.history-session {
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 8px;
+  background: #fff;
+}
+
+.history-session header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+}
+
+.history-session .history-actions {
+  display: flex;
+  gap: 6px;
+}

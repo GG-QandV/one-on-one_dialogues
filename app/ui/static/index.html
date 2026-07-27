@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>speech-local</title>
+  <link rel="stylesheet" href="/static/css/app.css">
+  <link rel="stylesheet" href="/static/css/cards.css">
+</head>
+<body>
+  <div id="app">
+    <div id="topbar"></div>
+    <nav id="tabs">
+      <button class="tab active" data-tab="translation">Перевод</button>
+      <button class="tab" data-tab="drafts">Черновики</button>
+      <button class="tab" data-tab="diagnostics">Диагностика</button>
+    </nav>
+    <main id="tab-content">
+      <section id="tab-translation" class="tab-panel active"></section>
+      <section id="tab-drafts" class="tab-panel"></section>
+      <section id="tab-diagnostics" class="tab-panel"></section>
+    </main>
+  </div>
+  <div id="settings-panel" class="panel-overlay hidden"></div>
+
+  <script src="/static/js/stream.js"></script>
+  <script src="/static/js/tab_translation.js"></script>
+  <script src="/static/js/tab_drafts.js"></script>
+  <script src="/static/js/tab_diagnostics.js"></script>
+  <script src="/static/js/topbar.js"></script>
+  <script src="/static/js/settings.js"></script>
+  <script src="/static/js/history.js"></script>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

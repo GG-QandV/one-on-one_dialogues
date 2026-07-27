@@ -12,6 +12,7 @@ def setup_routes(app: web.Application, ui_server) -> None:
     app.router.add_post("/api/privacy", ui_server._privacy_handler)
     app.router.add_get("/health", ui_server._health_handler)
     app.router.add_get("/ready", ui_server._ready_handler)
+    app.router.add_post("/api/clipboard", ui_server._clipboard_handler)
     # Static files (optional)
     # Note: static path is set in UiServer.__init__; we rely on that.
     # If you want to configure static path here, pass it via ui_server._config.static_path.
