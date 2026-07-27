@@ -105,23 +105,23 @@
 | B3 | `B3_models.md` | `app/models.py` | Junior | ✅ выполнен |
 | C6 | `C6_whisper_parser.md` | `app/stt/parser.py` | Middle | ✅ выдан |
 | C8 | `C8_language.md` | `app/stt/language.py` | Middle | ✅ выдан |
-| D1 | `D1_provider_base.md` | `app/translation/base.py` | Middle | ✅ выдан |
-| D2 | `D2_gemini_text.md` | `providers/gemini_text.py` | Middle | ✅ выдан |
-| D3 | `D3_claude_text.md` | `providers/claude_text.py` | Middle | ⬜ |
-| D4 | `D4_prompts.md` | `app/translation/prompts.py` | Middle | ⬜ |
-| D6 | `D6_context.md` | `app/translation/context.py` | Middle | ⬜ |
-| D7 | `D7_offline.md` | `app/translation/offline.py` | Middle+ | ⬜ |
-| I1 | `I1_library.md` | `app/drafts/library.py` | Middle | ⬜ |
-| I2 | `I2_draft_provider.md` | `app/drafts/provider.py` | Middle+ | ⬜ |
+| D1 | `D1_provider_interfaces.md` | `app/translation/base.py` | Middle | ✅ выполнен |
+| D2 | `D2_gemini_text.md` | `providers/gemini_text.py` | Middle | ✅ выполнен |
+| D3 | `D3_claude_text.md` | `providers/claude_text.py` | Middle | ✅ выполнен |
+| D4 | `D4_prompts.md` | `app/translation/prompts.py` | Middle | ✅ выполнен |
+| D6 | `D6_context.md` | `app/translation/context.py` | Middle | ✅ выполнен |
+| D7 | `D7_offline.md` | `app/translation/offline.py` | Middle+ | ✅ выполнен |
+| I1 | `I1_library.md` | `app/drafts/library.py` | Middle | ✅ выполнен |
+| I2 | `I2_draft_provider.md` | `app/drafts/provider.py` | Middle+ | ✅ выполнен |
 | I3 | `I3_trigger.md` | `app/drafts/trigger.py` | Middle | ⬜ |
-| I4 | `I4_draft_translate.md` | `app/drafts/translate.py` | Middle | ⬜ |
+| I4 | `I4_draft_translate.md` | `app/drafts/translate.py` | Middle | ✅ выполнен |
 | F1 | `F1_memory.md` | `app/watchdog/memory.py` | Middle+ | ⬜ |
-| G1 | `G1_redactor.md` | `app/security/redactor.py` | Middle | ⬜ |
-| G2 | `G2_byok.md` | `app/security/byok.py` | Middle+ | ⬜ |
+| G1 | `G1_redactor.md` | `app/security/redactor.py` | Middle | ✅ выполнен |
+| G2 | `G2_byok.md` | `app/security/byok.py` | Middle+ | ✅ выполнен |
 | G3 | `G3_clipboard.md` | `app/delivery/clipboard.py` | Junior+ | ✅ выполнен |
 | G4 | `G4_exports.md` | `app/exports/*.py` | Junior | ✅ выполнен |
-| E1 | `E1_sse_server.md` | `app/ui/server.py` | Middle | ⬜ |
-| E2 | `E2_ui_client_stream.md` | `app/ui/static/js/sse_client.js` | Middle | ⬜ |
+| E1 | `E1_sse_server.md` | `app/ui/routes.py` + `server.py` | Middle | ✅ выполнен |
+| E2 | `E2_ui_client_stream.md` | `app/ui/static/js/stream.js` | Middle | ✅ выполнен |
 | E3 | `E3_live_cards.md` | `app/ui/static/js/tab_translation.js`, `app/ui/static/css/cards.css` | Junior+ | ⬜ |
 | H2 | `H2_acceptance.md` | `tests/acceptance/`, `scripts/acceptance.py` | Senior | ✅ выдан |
 | H6 | `H6_readme.md` | `README.md` | Middle | ✅ выдан |
@@ -129,4 +129,4 @@
 Готовые модули senior-уровня контрактов не требуют: они реализованы и
 прогнаны, их интерфейсы зафиксированы в `INTERFACES.md` как данность.
 
-Всего контрактов: **24** (9 пустых — ретро-документация для готовых senior-модулей)
+Всего контрактов: **25**

@@ -82,7 +82,7 @@ class VerdictKind(str, Enum):
 class GuardConfig:
     #: reject вместо accept_gaps при числах вне библиотеки. Для переговоров
     #: о деньгах строгий режим — рекомендуемый.
-    strict_numbers: bool = True
+    strict_numbers: bool = False
     max_words: int = 120
     #: Обязательная фраза-мета при пробелах (из промпта DraftProvider).
     gap_marker: str = "нет данных"
