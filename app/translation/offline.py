@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable
+from typing import Any, Callable, Dict
 
 from app.db import Database
 from app.errors import (
@@ -43,7 +43,7 @@ class OfflineGate:
         self._config = config or OfflineConfig()
         self._clock = clock
         # per-provider state
-        self._state: dict[str, _Entry] = {}
+        self._state: Dict[str, _Entry] = {}
 
     def _entry(self, provider: str) -> _Entry:
         if provider not in self._state:
@@ -156,8 +156,8 @@ class OfflineGate:
         )
         return min(delay, self._config.probe_max_s)
 
-    def snapshot(self) -> dict:
-        result = {}
+    def snapshot(self) -> Dict[str, Any]:
+        result: Dict[str, Any] = {}
         for provider, entry in self._state.items():
             result[provider] = {
                 "state": entry.state.value,

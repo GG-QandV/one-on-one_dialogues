@@ -1,13 +1,14 @@
 """Tests for D7 offline gate and catch-up."""
 
 import pytest
+import sys
 
+from app.translation.offline import OfflineGate, OfflineConfig, ProviderState, _Entry
 from app.errors import (
     ProviderAuthError,
-    ProviderResponseInvalid,
     ProviderUnavailable,
+    ProviderResponseInvalid,
 )
-from app.translation.offline import OfflineConfig, OfflineGate, ProviderState, _Entry
 
 
 class MockClock:
@@ -44,7 +45,15 @@ class MockQueue:
     def __init__(self):
         self.enqueued = []
 
-    async def enqueue(self, job_type, *, segment_id=None, payload=None, idempotency_key=None, **kwargs):
+    async def enqueue(
+        self,
+        job_type,
+        *,
+        segment_id=None,
+        payload=None,
+        idempotency_key=None,
+        **kwargs,
+    ):
         self.enqueued.append((job_type, payload, idempotency_key))
 
 
@@ -312,7 +321,8 @@ class TestCatchUp:
         queue = MockQueue()
 
         # Create a new gate with custom batch size (config is frozen, so create new gate)
-        from app.translation.offline import OfflineConfig, OfflineGate
+        from app.translation.offline import OfflineGate, OfflineConfig
+
         test_config = OfflineConfig(
             failures_to_degrade=3,
             probe_initial_s=5.0,
@@ -381,8 +391,6 @@ class TestNoSTTDependency:
 
     def test_no_stt_imports(self):
         """Verify no STT modules are imported in offline.py."""
-        import sys
-
         # Check that no STT-related modules are in the module's dependencies
         stt_modules = [k for k in sys.modules if "stt" in k.lower()]
         # This is a soft check; the real guarantee is architectural
@@ -401,7 +409,3 @@ class TestEntryDataclass:
         assert entry.last_error_code is None
         assert entry.last_success_at is None
         assert entry.jobs_sent == 0
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
