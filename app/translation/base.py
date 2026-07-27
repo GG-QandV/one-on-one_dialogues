@@ -9,15 +9,14 @@ from enum import Enum
 from typing import Callable, Literal, Optional, Protocol, runtime_checkable
 
 from app.errors import (
-    ProviderAuthError,
-    ProviderRateLimited,
-    ProviderUnavailable,
-    ProviderResponseInvalid,
-    ProviderError,
     PrivacyViolation,
+    ProviderAuthError,
+    ProviderError,
+    ProviderRateLimited,
+    ProviderResponseInvalid,
+    ProviderUnavailable,
 )
 from app.privacy import Capability, Fence, PrivacyController
-
 
 # ------------------------------------------------------------------ enums
 
@@ -26,6 +25,7 @@ class TranslationMode(str, Enum):
     LIVE_LITERAL = "live_literal"
     LIVE_SAFE = "live_safe"
     POST_CLEAN = "post_clean"
+    DRAFT = "draft"
 
 
 # ------------------------------------------------------------------ data classes

@@ -109,7 +109,7 @@ async def test_gap_when_no_fact_in_library():
 
 @pytest.mark.asyncio
 async def test_library_inserted_whole_into_prompt():
-    """Библиотека вставляется в промпт целиком."""
+    """Библиотека и вопрос вставляются в промпт (без инструкций)."""
     lib_text = "УНИКАЛЬНЫЙ_МАРКЕР_БИБЛИОТЕКИ цена 30000."
     provider = FakeProvider(_good_response())
     lib = FakeLibrary(lib_text)
@@ -118,7 +118,8 @@ async def test_library_inserted_whole_into_prompt():
     req = DraftRequest("s1", "seg1", "Сколько?", "en", "lib1")
     await i2.generate(req, fence=_fence(provider))
 
-    assert lib_text in provider.last_request.text
+    assert f"СПРАВКА:\n{lib_text}" in provider.last_request.text
+    assert "ВОПРОС СОБЕСЕДНИКА:\nСколько?" in provider.last_request.text
 
 
 @pytest.mark.asyncio
@@ -269,6 +270,19 @@ async def test_candidate_carries_trigger_and_target():
     assert cand.trigger_segment_id == "segY"
     assert cand.target_language == "es"
     assert cand.session_id == "sX"
+
+
+@pytest.mark.asyncio
+async def test_uses_draft_mode_not_postclean():
+    """Запрос к LLM в режиме DRAFT, не POST_CLEAN."""
+    provider = FakeProvider(_good_response())
+    lib = FakeLibrary("цена 30000.")
+    i2 = DraftProvider(provider, lib)
+
+    req = DraftRequest("s1", "seg1", "Сколько?", "en", "l1")
+    await i2.generate(req, fence=_fence(provider))
+
+    assert provider.last_request.mode == TranslationMode.DRAFT
 
 
 @pytest.mark.asyncio

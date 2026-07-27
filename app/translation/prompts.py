@@ -4,17 +4,15 @@ from __future__ import annotations
 
 import json
 import re
-from collections import defaultdict
 from dataclasses import dataclass
-from typing import Tuple, List, Optional
+from typing import List, Tuple
 
 from app.translation.base import (
+    Change,
     TranslationMode,
     TranslationRequest,
     TranslationResult,
-    Change,
 )
-
 
 # ------------------------------------------------------------------ constants
 
@@ -64,7 +62,7 @@ def _normalize_number(s: str) -> str:
     """
     # Remove spaces (including non-breaking spaces)
     s = s.replace(" ", "").replace("\xa0", "")
-    
+
     # Handle comma: if it's followed by exactly 3 digits and nothing else (or end of string),
     # it's a thousands separator. Otherwise it's a decimal separator.
     if "," in s:
@@ -76,7 +74,7 @@ def _normalize_number(s: str) -> str:
         else:
             # Comma is decimal separator, replace with dot
             s = s.replace(",", ".")
-    
+
     return s
 
 
@@ -97,7 +95,7 @@ def _extract_numbers(text: str, exclude_urls: bool = True, exclude_skus: bool = 
                 urls.add(url[7:])  # Remove "http://"
             elif url.startswith("https://"):
                 urls.add(url[8:])  # Remove "https://"
-    
+
     # Extract SKU/article patterns to exclude them from number detection
     skus = set()
     if exclude_skus:
@@ -106,7 +104,7 @@ def _extract_numbers(text: str, exclude_urls: bool = True, exclude_skus: bool = 
         sku_pattern = r"\b[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+\b"
         sku_matches = re.findall(sku_pattern, text)
         skus = set(sku_matches)
-    
+
     # Remove URLs and SKUs from text for number extraction
     text_for_numbers = text
     if exclude_urls and urls:
@@ -115,7 +113,7 @@ def _extract_numbers(text: str, exclude_urls: bool = True, exclude_skus: bool = 
     if exclude_skus and skus:
         for sku in skus:
             text_for_numbers = text_for_numbers.replace(sku, " ")
-    
+
     # Pattern to match numbers with optional thousands separators (spaces) and optional decimal part
     # This regex matches sequences of digits that may be separated by spaces and may have a decimal part
     # It does not match numbers that are part of a word (because of word boundaries)
@@ -154,15 +152,15 @@ def _extract_skus(text: str) -> List[str]:
             urls.add(url[7:])
         elif url.startswith("https://"):
             urls.add(url[8:])
-    
+
     # Remove URLs from text for SKU extraction
     text_for_skus = text
     for url in urls:
         text_for_skus = text_for_skus.replace(url, " ")
-    
+
     sku_pattern = r"\b[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+\b"
     skus = re.findall(sku_pattern, text_for_skus)
-    
+
     # Filter out any SKUs that look like URL paths (contain domain-like parts)
     filtered_skus = []
     for sku in skus:
@@ -172,7 +170,7 @@ def _extract_skus(text: str) -> List[str]:
         is_url_like = any('.' in part for part in parts)
         if not is_url_like:
             filtered_skus.append(sku)
-    
+
     return filtered_skus
 
 
@@ -228,6 +226,21 @@ def build(mode: TranslationMode, req: TranslationRequest) -> Tuple[str, str]:
             "Сохраняй все факты, числа, имена, даты и названия.\n"
             "Верни только перевод."
         )
+    elif mode == TranslationMode.DRAFT:
+        # Промпт генерации черновика ответа. НЕ переводческий и НЕ чистящий —
+        # отдельный первый промпт (правило: нет промпта в промпте).
+        system = (
+            "Ты помогаешь менеджеру ответить на вопрос собеседника во время "
+            "деловых переговоров. Используй ТОЛЬКО факты из справки.\n"
+            "Ответь на языке справки, кратко.\n"
+            "Используй только числа, суммы, сроки и условия из справки.\n"
+            "Если данных для ответа в справке нет — верни \"{gap_marker}\" "
+            "в поле answer и пустой список sources. НЕ придумывай числа и факты.\n"
+            "В sources укажи ТОЧНЫЕ заголовки использованных разделов справки.\n"
+            "Верни СТРОГО JSON без пояснений:\n"
+            "{\"answer\": \"...\", \"sources\": [\"...\"], "
+            "\"has_gaps\": false, \"gap_note\": null}"
+        )
     else:  # POST_CLEAN
         # Note: This template contains JSON braces. We use str.replace, NOT str.format,
         # to avoid KeyError on {"clean_text": ..., "changes": [...]}
@@ -241,21 +254,27 @@ def build(mode: TranslationMode, req: TranslationRequest) -> Tuple[str, str]:
         )
 
     # User prompt: context and text
-    user_parts = []
-    if req.context:
-        user_parts.append(format_context(req.context))
-    user_parts.append(f"Текст для перевода:\n{req.text}")
-    user = "\n\n".join(user_parts)
+    if mode == TranslationMode.DRAFT:
+        # req.text = собранный вызывающим блок "СПРАВКА:\n...\n\nВОПРОС:\n..."
+        user = req.text
+    else:
+        user_parts = []
+        if req.context:
+            user_parts.append(format_context(req.context))
+        user_parts.append(f"Текст для перевода:\n{req.text}")
+        user = "\n\n".join(user_parts)
 
     # Format the system prompt with language names
     source_lang_name = LANGUAGE_NAMES.get(req.source_language, req.source_language)
     target_lang_name = LANGUAGE_NAMES.get(req.target_language, req.target_language)
-    
-    # For POST_CLEAN, the template contains JSON braces which would cause KeyError with .format()
-    # Use str.replace instead to safely substitute only the language placeholders
-    if mode == TranslationMode.POST_CLEAN:
+
+    # For POST_CLEAN and DRAFT, the template contains JSON braces which would
+    # cause KeyError with .format(). Use str.replace instead.
+    if mode in (TranslationMode.POST_CLEAN, TranslationMode.DRAFT):
         system = system.replace("{source_language}", source_lang_name)
         system = system.replace("{target_language}", target_lang_name)
+        if mode == TranslationMode.DRAFT:
+            system = system.replace("{gap_marker}", "нет данных")
     else:
         system = system.format(
             source_language=source_lang_name,
@@ -284,6 +303,10 @@ def format_context(context: tuple[str, ...]) -> str:
 
 def validate_response(mode: TranslationMode, raw: str) -> TranslationResult:
     """Разбор ответа. POST_CLEAN обязан вернуть строгий JSON."""
+    if mode == TranslationMode.DRAFT:
+        # Сырой JSON отдаётся I2, он разбирает его в DraftCandidate.
+        # D4 структуру черновика не знает — только пробрасывает.
+        return TranslationResult(translation_raw=raw.strip())
     if mode == TranslationMode.POST_CLEAN:
         # Expect a JSON object with keys "translation" and optionally "changes"
         try:
@@ -378,9 +401,7 @@ def detect_drift(req: TranslationRequest, translation: str) -> tuple[Change, ...
     # URLs
     for url in _extract_urls(original_text):
         found = False
-        if url in translation:
-            found = True
-        elif url.rstrip("/") in translation:
+        if url in translation or url.rstrip("/") in translation:
             found = True
         else:
             cleaned = url.rstrip(".,:;!?")
@@ -394,9 +415,7 @@ def detect_drift(req: TranslationRequest, translation: str) -> tuple[Change, ...
     # For completeness, we'll call _extract_dates but it returns empty list.
     for date in _extract_dates(original_text):
         found = False
-        if date in translation:
-            found = True
-        elif date.rstrip("/") in translation:
+        if date in translation or date.rstrip("/") in translation:
             found = True
         else:
             cleaned = date.rstrip(".,:;!?")
@@ -439,6 +458,9 @@ def audit(
     req: TranslationRequest, result: TranslationResult
 ) -> TranslationResult:
     """filler_changes + detect_drift, дописывает changes. Вызывает D1."""
+    # Черновик не аудируется как перевод — нет «оригинала» для сверки дрейфа.
+    if req.mode == TranslationMode.DRAFT:
+        return result
     # Get filler changes (only for LIVE_SAFE)
     filler_changes_result = filler_changes(req)
     # Get drift changes (for all modes)
