@@ -13,7 +13,7 @@
 Порядок остановки — зеркало запуска
 ------------------------------------
 Запуск:   БД → очередь jobs → STT scheduler → захват → сегментация → UI
-Остановка: intake (захват) → сегментаторы (flush хвоста) → STT (дорабатывает
+Остановка: UI → intake (захват) → сегментаторы (flush хвоста) → STT (дорабатывает
 очередь) → облачные сессии (teardown через PrivacyController) → очередь jobs
 → БД (дренаж писателя + checkpoint WAL).
 
@@ -52,6 +52,7 @@ from app.stt.fallback import ModelSelector
 from app.stt.runner import WhisperConfig, WhisperRawResult, WhisperRunner
 from app.stt.scheduler import SchedulerConfig, SttScheduler
 from app.translation.supersede import SupersedeService
+from app.ui.server import UiServer, UiConfig
 
 log = logging.getLogger(__name__)
 
@@ -64,13 +65,13 @@ def _now_iso() -> str:
 class AppConfig:
     """Собранная конфигурация. Наполняется из config.toml модулем config.py
     (задача B1, middle); здесь — только структура и дефолты для сборки."""
-
     data_dir: Path = Path("data")
     whisper: WhisperConfig = WhisperConfig()
     scheduler: SchedulerConfig = SchedulerConfig()
     queue: QueueConfig = QueueConfig()
     default_profile: PrivacyProfile = PrivacyProfile.OPEN
     streams: dict[str, dict[str, Any]] = None  # type: ignore[assignment]
+    ui: UiConfig = UiConfig()  # UI server configuration
 
     def stream_settings(self, role: str) -> dict[str, Any]:
         defaults = {
@@ -103,6 +104,7 @@ class Application:
         self._segmenters: dict[str, Segmenter] = {}
         self._pipelines: list[asyncio.Task[None]] = []
         self._session_id: str | None = None
+        self.ui_server: UiServer | None = None
 
     # ================================================================ запуск
 
@@ -141,6 +143,13 @@ class Application:
         await self.jobs.start()
 
         log.info("ядро запущено, профиль: %s", self.privacy.profile.value)
+
+        # 5. Захват и сегментация будут запущены при старте сессии.
+
+        # 6. UI сервер (запускаем после ядра, чтобы snapshot работал)
+        self.ui_server = UiServer(self, cfg.ui)
+        await self.ui_server.start()
+        log.info("UI сервер запущен")
 
     async def start_session(self, meeting_title: str | None = None) -> str:
         """Начать сессию: запись в БД, захват, сегментация, конвейер."""
@@ -320,28 +329,33 @@ class Application:
         session_id = self._session_id
         log.info("остановка сессии %s", session_id)
 
-        # 1. Стоп intake: захват перестаёт отдавать аудио.
+        # 1. Остановить UI сервер первым (спека E1 пункт 10)
+        if self.ui_server:
+            await self.ui_server.stop()
+            self.ui_server = None
+
+        # 2. Стоп intake: захват перестаёт отдавать аудио.
         if self.capture is not None:
             with contextlib.suppress(Exception):
                 await self.capture.stop_all()
 
-        # 2. Конвейеры дорабатывают буферы; flush хвоста внутри segmenter.run.
+        # 3. Конвейеры дорабатывают буферы; flush хвоста внутри segmenter.run.
         for task in self._pipelines:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await asyncio.wait_for(task, timeout=10.0)
         self._pipelines.clear()
         self._segmenters.clear()
 
-        # 3. STT дорабатывает очередь (все WAV уже записаны).
+        # 4. STT дорабатывает очередь (все WAV уже записаны).
         if self.stt is not None:
             await self.stt.stop()
 
-        # 4. Облачные сессии: teardown зарегистрированных хуков.
+        # 5. Облачные сессии: teardown зарегистрированных хуков.
         if self.privacy is not None and self.privacy.profile is PrivacyProfile.OPEN:
             with contextlib.suppress(Exception):
                 await self.privacy._teardown_all()  # noqa: SLF001 — санкционировано F3
 
-        # 5. Финализация сессии в БД.
+        # 6. Финализация сессии в БД.
         if self.db is not None:
             with contextlib.suppress(Exception):
                 await self.db.execute(
@@ -409,7 +423,19 @@ class Application:
                 role: s.snapshot() for role, s in self._segmenters.items()
             },
             "db_writer": self.db.stats.snapshot() if self.db else None,
+            "ui": self.ui_server.snapshot() if self.ui_server else None,
         }
+
+    # Удобный метод для проверки готовности (используется в UI /ready)
+    async def is_ready(self) -> bool:
+        """Возвращает True, если ядро запущено и готово принимать сессии."""
+        return (
+            self.db is not None
+            and self.privacy is not None
+            and self.jobs is not None
+            and self.stt is not None
+            and not self._stopping.is_set()
+        )
 
 
 # ==================================================================== запуск

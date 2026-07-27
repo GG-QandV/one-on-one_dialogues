@@ -180,7 +180,7 @@ class ProviderUnavailable(ProviderError):
 
 class ProviderResponseInvalid(ProviderError):
     code = "PROVIDER_RESPONSE_INVALID"
-    retryable = True
+    retryable = False
 
 
 # --------------------------------------------------------------- деградация
