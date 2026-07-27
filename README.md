@@ -47,20 +47,20 @@ python -m app.main
 
 Ключи API задаются через UI (BYOK, живут в RAM 60 минут, в лог и файлы не пишутся):
 
-| Провайдер | Перевод | Черновики |
-|-----------|---------|-----------|
-| Gemini | ✅ | ✅ |
-| Claude | ✅ | ❌ |
-| OpenAI Realtime | ✅ (быстрый трек) | ❌ |
+| Провайдер       | Перевод          | Черновики |
+| --------------- | ---------------- | --------- |
+| Gemini          | ✅                | ✅         |
+| Claude          | ✅                | ❌         |
+| OpenAI Realtime | ✅ (быстрый трек) | ❌         |
 
 ## Скрипты
 
-| Скрипт | Назначение |
-|--------|-----------|
-| `scripts/install_whispercpp.sh` | Сборка whisper.cpp |
-| `scripts/download_model.sh` | Загрузка моделей (base/tiny/small) |
-| `scripts/create_pipewire_sources.sh` | Virtual sink для захвата встречи |
-| `scripts/diagnose_hardware.sh` | Диагностика аудио и системы |
+| Скрипт                               | Назначение                         |
+| ------------------------------------ | ---------------------------------- |
+| `scripts/install_whispercpp.sh`      | Сборка whisper.cpp                 |
+| `scripts/download_model.sh`          | Загрузка моделей (base/tiny/small) |
+| `scripts/create_pipewire_sources.sh` | Virtual sink для захвата встречи   |
+| `scripts/diagnose_hardware.sh`       | Диагностика аудио и системы        |
 
 ## Systemd
 
