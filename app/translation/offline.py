@@ -3,17 +3,17 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
-from enum import Enum, auto
-from typing import Callable, Dict, Optional
+from dataclasses import dataclass
+from enum import Enum
+from typing import Callable
 
 from app.db import Database
 from app.errors import (
     ProviderAuthError,
     ProviderError,
     ProviderRateLimited,
-    ProviderUnavailable,
     ProviderResponseInvalid,
+    ProviderUnavailable,
 )
 from app.queue import JobQueue, JobType
 
@@ -66,22 +66,21 @@ class OfflineGate:
                 # Should not happen, but ignore
                 return
             if entry.state == ProviderState.DEGRADED:
-                # This is a failed probe
-                entry.probe_index += 1
-                delay = self._probe_delay(entry.probe_index)
-                entry.next_probe_at = self._clock() + delay
-                # Keep last_error_code
+                # This is a failed probe - the probe was already accounted for in should_attempt
+                # which advanced probe_index and next_probe_at. Just update error code.
                 entry.last_error_code = err.__class__.__name__
                 # consecutive_failures stays as is (already >= failures_to_degrade)
             else:  # AVAILABLE
                 entry.consecutive_failures += 1
                 entry.last_error_code = err.__class__.__name__
-                if entry.consecutive_failures >= self._config.failures_to_degrade:
-                    if entry.state != ProviderState.BLOCKED:
-                        entry.state = ProviderState.DEGRADED
-                        entry.probe_index = 0
-                        # First probe delay
-                        entry.next_probe_at = self._clock() + self._probe_delay(0)
+                if (
+                    entry.consecutive_failures >= self._config.failures_to_degrade
+                    and entry.state != ProviderState.BLOCKED
+                ):
+                    entry.state = ProviderState.DEGRADED
+                    entry.probe_index = 0
+                    # First probe delay
+                    entry.next_probe_at = self._clock() + self._probe_delay(0)
         else:
             # Non-retryable error (e.g., bad request) does not affect availability
             # Just update last_error_code for diagnostics
@@ -116,7 +115,14 @@ class OfflineGate:
             return False
         # DEGRADED
         now = self._clock()
-        return now >= entry.next_probe_at
+        if now >= entry.next_probe_at:
+            # Probe window open - allow exactly one attempt, then close window
+            # by advancing next_probe_at to the next interval
+            delay = self._probe_delay(entry.probe_index)
+            entry.next_probe_at = now + delay
+            entry.probe_index += 1
+            return True
+        return False
 
     async def catch_up(self, db: Database, queue: JobQueue) -> int:
         # Select accurate segments with pending/failed translation, ordered by t_start_ms
@@ -136,7 +142,8 @@ class OfflineGate:
             # idempotency key: segment_id
             await queue.enqueue(
                 JobType.TRANSLATE,
-                {"segment_id": segment_id},
+                segment_id=segment_id,
+                payload={"segment_id": segment_id},
                 idempotency_key=segment_id,
             )
             count += 1

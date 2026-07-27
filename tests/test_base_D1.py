@@ -272,6 +272,26 @@ class TestBaseTranslationProvider:
         assert 'fence' in sig.parameters
         assert sig.parameters['fence'].kind == inspect.Parameter.KEYWORD_ONLY
 
+    @pytest.mark.asyncio
+    async def test_switch_before_translate_with_stale_fence_raises(self, provider, req):
+        """fence захвачен со старым поколением, профиль переключён ДО translate -> StaleGenerationError."""
+        fence = provider.privacy.require(Capability.TEXT_TO_CLOUD)
+        # Переключаем профиль ДО вызова translate
+        await provider.privacy.switch(PrivacyProfile.CONFIDENTIAL, session_id="test")
+
+        with pytest.raises(StaleGenerationError):
+            await provider.translate(req, fence=fence)
+
+    @pytest.mark.asyncio
+    async def test_switch_before_translate_fresh_fence_passes(self, provider, req):
+        """fence захвачен ПОСЛЕ переключения профиля — translate проходит."""
+        await provider.privacy.switch(PrivacyProfile.CONFIDENTIAL, session_id="test")
+        fence = provider.privacy.require(Capability.TEXT_TO_CLOUD)
+
+        result = await provider.translate(req, fence=fence)
+        assert isinstance(result, TranslationResult)
+        assert result.translation_raw == "translated text"
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

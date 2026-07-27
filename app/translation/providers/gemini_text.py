@@ -85,6 +85,23 @@ class GeminiTextProvider(BaseTranslationProvider):
         # For POST_CLEAN, we need JSON output mode
         if req.mode == TranslationMode.POST_CLEAN:
             payload["generationConfig"]["responseMimeType"] = "application/json"
+            payload["generationConfig"]["responseSchema"] = {
+                "type": "OBJECT",
+                "properties": {
+                    "clean_text": {"type": "STRING"},
+                    "changes": {
+                        "type": "ARRAY",
+                        "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "type": {"type": "STRING"},
+                                "original": {"type": "STRING"},
+                                "replacement": {"type": "STRING"},
+                            },
+                        },
+                    },
+                },
+            }
 
         headers = {
             "x-goog-api-key": api_key,
@@ -115,11 +132,22 @@ class GeminiTextProvider(BaseTranslationProvider):
         except json.JSONDecodeError as exc:
             raise ProviderResponseInvalid(f"invalid JSON: {exc}") from None
 
+        # Блокировка фильтром безопасности: 200 с promptFeedback.blockReason
+        prompt_feedback = data.get("promptFeedback") or {}
+        block_reason = prompt_feedback.get("blockReason")
+        if block_reason:
+            raise ProviderResponseInvalid(f"blocked: {block_reason}")
+
         # Extract text per Gemini spec
         candidates = data.get("candidates")
         if not candidates:
             raise ProviderResponseInvalid("no candidates in response")
         candidate = candidates[0]
+
+        # finishReason != STOP → ProviderResponseInvalid
+        finish_reason = candidate.get("finishReason")
+        if finish_reason and finish_reason != "STOP":
+            raise ProviderResponseInvalid(f"finish_reason: {finish_reason}")
         content = candidate.get("content")
         if not content:
             raise ProviderResponseInvalid("no content in candidate")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 import httpx
@@ -118,6 +119,11 @@ class ClaudeTextProvider(BaseTranslationProvider):
         except json.JSONDecodeError as exc:
             raise ProviderResponseInvalid(f"invalid JSON: {exc}") from None
 
+        # stop_reason == "max_tokens" → обрезанный ответ
+        stop_reason = data.get("stop_reason")
+        if stop_reason == "max_tokens":
+            raise ProviderResponseInvalid("stop_reason: max_tokens")
+
         # Extract text from Claude response
         content = data.get("content")
         if not content or not isinstance(content, list):
@@ -128,6 +134,11 @@ class ClaudeTextProvider(BaseTranslationProvider):
             if isinstance(block, dict) and block.get("type") == "text":
                 text_parts.append(block.get("text", ""))
         raw_text = "".join(text_parts).strip()
+
+        # Для POST_CLEAN предзаполнили ассистента '{', ответ приходит без неё — вернуть
+        if req.mode == TranslationMode.POST_CLEAN:
+            if not raw_text.startswith("{"):
+                raw_text = "{" + raw_text
 
         return raw_text
 

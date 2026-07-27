@@ -121,12 +121,14 @@ class BaseTranslationProvider(abc.ABC):
 
     async def translate(self, req: "TranslationRequest", *, fence: "Fence") -> "TranslationResult":
         """Основной метод перевода: проверка приватности, вызов провайдера, аудит."""
-        # 1. Проверка приватности: требуем право на TEXT_TO_CLOUD + fence
+        # 1. Проверка приватности: fence приходит СНАРУЖИ от вызывающего,
+        # который захватил его в момент постановки задачи. Перезахватывать нельзя:
+        # это потеряло бы переключение профиля, случившееся между постановкой и
+        # выполнением. Проверяем право по текущему профилю, но fence НЕ трогаем.
         if not self._privacy.allows(Capability.TEXT_TO_CLOUD):
             raise PrivacyViolation(Capability.TEXT_TO_CLOUD.value, self._privacy.profile.value)
-
-        # Захватываем fence ПЕРЕД вызовом (require — атомарная проверка + захват)
-        fence = self._privacy.require(Capability.TEXT_TO_CLOUD)
+        # fence используется как передан — валидация ниже, после _call, сверит
+        # его поколение с текущим и бросит StaleGenerationError при расхождении.
 
         # 2. Получаем ключ провайдера
         api_key = self._key_provider()

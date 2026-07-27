@@ -7,8 +7,8 @@ from typing import Optional
 
 from app.translation.base import TranslationProvider, TranslationMode
 from app.drafts.guardrails import DraftGuard
-from app.translation.prompts import detect_drift
 from app.errors import InvariantViolation
+from app.privacy import Fence
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,7 +39,8 @@ class DraftTranslator:
         }
 
     async def translate_draft(
-        self, draft_id: str, draft_ru: str, target_language: str
+        self, draft_id: str, draft_ru: str, target_language: str,
+        *, fence: "Fence",
     ) -> str | None:
         """Translate a draft from Russian to target_language.
 
@@ -75,55 +76,8 @@ class DraftTranslator:
         )
 
         # Translate via provider (which will apply privacy, audit, etc.)
-        # We need to provide a fence; but the provider's translate method requires a fence.
-        # However, the DraftTranslator does not have a PrivacyController.
-        # According to the spec, the provider handles privacy; we must obtain a fence
-        # from somewhere. The draft translator likely does not need to enforce privacy
-        # because the provider will do it when called from the job worker (which has
-        # access to privacy). But the method signature of provider.translate requires a fence.
-        # We need to get a fence from the provider's privacy controller? Actually, the
-        # provider's translate method expects a fence argument. We can create a dummy fence?
-        # No, the fence must come from the PrivacyController via require().
-        # Since we don't have a privacy controller here, we must assume that the caller
-        # (the job worker) will provide the fence? But the method is called by the job
-        # worker, which should have access to the privacy controller via the provider.
-        # Let's look at how other translators are used: in base.translate, the fence is
-        # passed from the caller. The caller (e.g., the job) must have a privacy controller
-        # to call require().
-        # However, the DraftTranslator is a helper that is called by the job worker as well.
-        # The job worker likely has a privacy controller. But we don't have access to it.
-        # Alternative: we can call provider.translate without a fence? Not allowed.
-        # We need to change the design: perhaps the DraftTranslator should not call
-        # provider.translate directly, but instead call the provider's _call and _parse
-        # and handle privacy ourselves? That would duplicate code.
-        # Let's check the actual usage: In the spec, the DraftTranslator is used by the
-        # DraftGuard? Actually, the DraftTranslator is a separate module that is used by
-        # the job worker for draft translation. The job worker likely has a privacy
-        # controller and can pass it in? But the DraftTranslator constructor does not
-        # take a privacy controller.
-        # Looking at the contract for DraftTranslator, it only takes provider, guard, config.
-        # The provider is a TranslationProvider, which already has a privacy controller
-        # (as a property). So we can get the privacy from the provider: provider.privacy.
-        # Then we can call provider.privacy.require(...) to get a fence.
-        # However, the provider's translate method already does the privacy check and
-        # fence handling. If we call provider.translate, we need to pass a fence.
-        # We can obtain a fence by calling provider.privacy.require(Capability.TEXT_TO_CLOUD).
-        # But note: the provider's translate method will again call require and validate,
-        # which would double-check. That's okay; we can just call require and then
-        # call a lower-level method that does not do privacy? But the provider does not
-        # expose such a method.
-        # Alternatively, we can let the provider's translate handle privacy, and we just
-        # need to provide a fence. We can get a fresh fence from the provider's privacy
-        # controller each time. That is acceptable because the require() method is
-        # idempotent in the sense that it returns a fence for the current generation.
-        # However, if we call require and then later the provider calls require again,
-        # the generation should be the same if no switch happened in between.
-        # We'll do that.
-
-        from app.privacy import Capability
-
-        # Obtain a fence for TEXT_TO_CLOUD
-        fence = self._provider.privacy.require(Capability.TEXT_TO_CLOUD)
+        # fence приходит параметром от вызывающего — он захватил его в момент
+        # постановки задачи. Передаём провайдеру как есть.
 
         try:
             result = await self._provider.translate(req, fence=fence)
@@ -138,10 +92,9 @@ class DraftTranslator:
             self._snapshot["rejected_empty"] += 1
             return None
 
-        # Check for drift
-        drift = detect_drift(req, result.translation_raw)
-        if self._config.reject_on_drift and drift:
-            # Any lost_entity means drift
+        # Аудит уже прогнан в base.translate, изменения в result.changes — читаем их
+        lost = [c for c in result.changes if c.type == "lost_entity"]
+        if self._config.reject_on_drift and lost:
             self._snapshot["rejected_drift"] += 1
             return None
 

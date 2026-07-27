@@ -389,11 +389,6 @@ def detect_drift(req: TranslationRequest, translation: str) -> tuple[Change, ...
         if not found:
             lost_strings.add(url)
 
-    # SKUs/Article numbers
-    for sku in _extract_skus(original_text):
-        if sku not in _extract_skus(translation):
-            lost_strings.add(sku)
-
     # Dates: we'll use a simple regex for now, but we'll skip because we don't have a good implementation.
     # Since the acceptance criteria doesn't specify dates, we'll skip date detection for now.
     # For completeness, we'll call _extract_dates but it returns empty list.
