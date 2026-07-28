@@ -39,6 +39,9 @@ class TranslationRequest:
     mode: TranslationMode
     context: tuple[str, ...] = ()
     segment_id: Optional[str] = None
+    #: Тон для DRAFT-режима: пресет + уточнение. Игнорируется для перевода.
+    tone_preset: str = "neutral"
+    tone_note: str = ""
 
 
 @dataclass(frozen=True, slots=True)

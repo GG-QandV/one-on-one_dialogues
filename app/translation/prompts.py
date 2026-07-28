@@ -7,11 +7,19 @@ import re
 from dataclasses import dataclass
 from typing import List, Tuple
 
+from pathlib import Path
+
+from app.drafts.prompt_loader import DraftPromptTemplate
 from app.translation.base import (
     Change,
     TranslationMode,
     TranslationRequest,
     TranslationResult,
+)
+
+
+DRAFT_PROMPT = DraftPromptTemplate(
+    Path(__file__).resolve().parent.parent.parent / "app" / "drafts" / "prompt_draft_mode.md"
 )
 
 # ------------------------------------------------------------------ constants
@@ -227,19 +235,12 @@ def build(mode: TranslationMode, req: TranslationRequest) -> Tuple[str, str]:
             "Верни только перевод."
         )
     elif mode == TranslationMode.DRAFT:
-        # Промпт генерации черновика ответа. НЕ переводческий и НЕ чистящий —
-        # отдельный первый промпт (правило: нет промпта в промпте).
-        system = (
-            "Ты помогаешь менеджеру ответить на вопрос собеседника во время "
-            "деловых переговоров. Используй ТОЛЬКО факты из справки.\n"
-            "Ответь на языке справки, кратко.\n"
-            "Используй только числа, суммы, сроки и условия из справки.\n"
-            "Если данных для ответа в справке нет — верни \"{gap_marker}\" "
-            "в поле answer и пустой список sources. НЕ придумывай числа и факты.\n"
-            "В sources укажи ТОЧНЫЕ заголовки использованных разделов справки.\n"
-            "Верни СТРОГО JSON без пояснений:\n"
-            "{\"answer\": \"...\", \"sources\": [\"...\"], "
-            "\"has_gaps\": false, \"gap_note\": null}"
+        # Промпт из внешнего файла (prompt_draft_mode.md) с подстановкой
+        # языка и тона из панели. Тон-уточнение имеет приоритет над пресетом.
+        system = DRAFT_PROMPT.build_system(
+            generate_language=req.source_language,
+            tone_preset=req.tone_preset,
+            tone_note=req.tone_note,
         )
     else:  # POST_CLEAN
         # Note: This template contains JSON braces. We use str.replace, NOT str.format,

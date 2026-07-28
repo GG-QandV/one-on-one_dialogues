@@ -153,6 +153,8 @@ class DraftProvider:
             mode=TranslationMode.DRAFT,
             context=(),
             segment_id=None,
+            tone_preset=req.tone_preset,
+            tone_note=req.tone_note,
         )
         result = await self._provider.translate(llm_request, fence=fence)
         candidate = self._parse(result.translation_raw, req)
