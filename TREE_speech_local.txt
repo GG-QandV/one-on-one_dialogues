@@ -48,6 +48,7 @@ speech-local/
 │   ├── download_model.sh                   [ 681B]
 │   ├── create_pipewire_sources.sh          [ 864B]
 │   ├── diagnose_hardware.sh                [1.4K]
+│   ├── c0_spike.py                         [  16K]
 ├── migrations/                         [4.0K]
 │   ├── 001_initial.sql                     [  11K]
 │   ├── 002_privacy_profile.sql             [ 534B]
