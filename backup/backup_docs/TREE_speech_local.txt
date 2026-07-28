@@ -8,6 +8,10 @@ speech-local/
 ├── config.example.toml                 [1.3K]
 ├── INTERFACES.md                       [  35K]  # block A1: inter-module signatures
 ├── TREE_speech_local.txt               [9.8K]  # auto-tree
+├── backup/                             [4.0K]  # доп материалы
+│
+├── backups/                            [4.0K]  # доп материалы (тир 2)
+│   ├── .gitkeep                             [   0B]
 │
 ├── CONTRACTS/                         [4.0K]  # block A2: one file = one task
 │   ├── README.md                           [  10K]  # registry + template
