@@ -1,8 +1,7 @@
 # runtime data
 data/
 
-# backups
-backups/
+
 
 # env secrets
 .env
