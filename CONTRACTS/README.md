@@ -99,12 +99,12 @@
 
 ## Реестр контрактов
 
-| ID | Файл контракта | Модуль | Уровень | Статус |
+ | ID | Файл контракта | Модуль | Уровень | Статус |
 | :-- | :-- | :-- | :-- | :-- |
 | B1 | `B1_config.md` | `app/config.py` | Junior+ | ✅ выполнен |
 | B3 | `B3_models.md` | `app/models.py` | Junior | ✅ выполнен |
-| C6 | `C6_whisper_parser.md` | `app/stt/parser.py` | Middle | ✅ выдан |
-| C8 | `C8_language.md` | `app/stt/language.py` | Middle | ✅ выдан |
+| C6 | `C6_whisper_parser.md` | `app/stt/parser.py` | Middle | ✅ выполнен |
+| C8 | `C8_language.md` | `app/stt/language.py` | Middle | ✅ выполнен |
 | D1 | `D1_provider_interfaces.md` | `app/translation/base.py` | Middle | ✅ выполнен |
 | D2 | `D2_gemini_text.md` | `providers/gemini_text.py` | Middle | ✅ выполнен |
 | D3 | `D3_claude_text.md` | `providers/claude_text.py` | Middle | ✅ выполнен |
@@ -113,20 +113,44 @@
 | D7 | `D7_offline.md` | `app/translation/offline.py` | Middle+ | ✅ выполнен |
 | I1 | `I1_library.md` | `app/drafts/library.py` | Middle | ✅ выполнен |
 | I2 | `I2_draft_provider.md` | `app/drafts/provider.py` | Middle+ | ✅ выполнен |
-| I3 | `I3_trigger.md` | `app/drafts/trigger.py` | Middle | ⬜ |
+| I3 | `I3_trigger.md` | `app/drafts/trigger.py` | Middle | ✅ выполнен |
 | I4 | `I4_draft_translate.md` | `app/drafts/translate.py` | Middle | ✅ выполнен |
-| F1 | `F1_memory.md` | `app/watchdog/memory.py` | Middle+ | ⬜ |
+| F1 | `F1_memory.md` | `app/watchdog/memory.py` | Middle+ | ✅ выполнен |
 | G1 | `G1_redactor.md` | `app/security/redactor.py` | Middle | ✅ выполнен |
 | G2 | `G2_byok.md` | `app/security/byok.py` | Middle+ | ✅ выполнен |
 | G3 | `G3_clipboard.md` | `app/delivery/clipboard.py` | Junior+ | ✅ выполнен |
 | G4 | `G4_exports.md` | `app/exports/*.py` | Junior | ✅ выполнен |
 | E1 | `E1_sse_server.md` | `app/ui/routes.py` + `server.py` | Middle | ✅ выполнен |
 | E2 | `E2_ui_client_stream.md` | `app/ui/static/js/stream.js` | Middle | ✅ выполнен |
-| E3 | `E3_live_cards.md` | `app/ui/static/js/tab_translation.js`, `app/ui/static/css/cards.css` | Junior+ | ⬜ |
+| E3 | `E3_live_cards.md` | `app/ui/static/js/tab_translation.js`, `app/ui/static/css/cards.css` | Junior+ | ✅ выполнен |
 | H2 | `H2_acceptance.md` | `tests/acceptance/`, `scripts/acceptance.py` | Senior | ✅ выдан |
-| H6 | `H6_readme.md` | `README.md` | Middle | ✅ выдан |
+| H6 | `H6_readme.md` | `README.md` | Middle | ✅ выполнен |
 
 Готовые модули senior-уровня контрактов не требуют: они реализованы и
 прогнаны, их интерфейсы зафиксированы в `INTERFACES.md` как данность.
 
 Всего контрактов: **25**
+
+---
+
+## Зафиксированные отклонения
+
+Отклонения от спеки, признанные архитектором и зафиксированные для протокола.
+
+### 1. §12 ↔ язык промпта (I2/I5)
+
+Язык промпта в реализации не совпадает с языком, указанным в §12 спеки.
+Признано сознательным выбором: промпт на языке модели даёт более стабильный
+результат, чем перевод промпта.
+
+### 2. `strict_numbers` — мягкий дефолт (I5)
+
+В спеке `strict_numbers` предполагался как `True` по умолчанию. В реализации
+установлен `False` (мягкий режим). Причина: на реальных данных строгий
+режим даёт >40% ложных срабатываний. Значение переопределяется через конфиг.
+
+### 3. C3 — второй fallback (нормализатор)
+
+C3 (нормализатор текста) использует второй fallback-путь при недоступности
+основного. В исходной спеке был предусмотрен только один. Добавление признано
+необходимым по результатам тестирования на корпусе транскрипций.

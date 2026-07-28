@@ -228,3 +228,55 @@ async def test_h1_gate_blocked_re_enqueues(app, db):
     assert queued is not None
 
     await app.jobs.stop()
+
+
+@pytest.mark.asyncio
+async def test_h1_context_built_and_passed_to_provider(app, db):
+    """D6 build_context вызывается и контекст передаётся в provider."""
+    sid = uuid.uuid4().hex
+    stream_id = uuid.uuid4().hex
+    now = "2025-01-01T00:00:00.000"
+    await db.execute(
+        "INSERT INTO sessions (id, started_at, status, default_privacy_profile, mode) "
+        "VALUES (?, ?, 'active', 'open', 'live_safe')",
+        (sid, now),
+    )
+    await db.execute(
+        "INSERT INTO audio_streams (id, session_id, role, source_language, target_language, enabled) "
+        "VALUES (?, ?, 'microphone', 'ru', 'en', 1)",
+        (stream_id, sid),
+    )
+    prev_id = uuid.uuid4().hex
+    seg_id = uuid.uuid4().hex
+    await db.execute(
+        "INSERT INTO segments (id, session_id, stream_id, t_start_ms, t_end_ms, "
+        "privacy_profile, track, raw_text, translation_status, created_at) "
+        "VALUES (?, ?, ?, 0, 500, 'open', 'accurate', 'предыдущий текст', 'done', ?)",
+        (prev_id, sid, stream_id, now),
+    )
+    await db.execute(
+        "INSERT INTO segments (id, session_id, stream_id, t_start_ms, t_end_ms, "
+        "privacy_profile, track, raw_text, translation_status, created_at) "
+        "VALUES (?, ?, ?, 2000, 3000, 'open', 'accurate', 'привет мир', 'pending', ?)",
+        (seg_id, sid, stream_id, now),
+    )
+
+    app.jobs = None
+    await app._handle_translate(_make_job(seg_id))
+
+    assert app._provider.last_request is not None
+    ctx = app._provider.last_request.context
+    assert isinstance(ctx, tuple)
+    assert "предыдущий текст" in ctx
+
+
+@pytest.mark.asyncio
+async def test_h1_context_empty_for_first_segment(app, db):
+    """Первый сегмент сессии получает пустой контекст."""
+    _, _, seg_id = await _seed_segment(db)
+    app.jobs = None
+
+    await app._handle_translate(_make_job(seg_id))
+
+    assert app._provider.last_request is not None
+    assert app._provider.last_request.context == ()

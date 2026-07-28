@@ -52,6 +52,7 @@ from app.stt.fallback import ModelSelector
 from app.stt.runner import WhisperConfig, WhisperRawResult, WhisperRunner
 from app.stt.scheduler import SchedulerConfig, SttScheduler
 from app.translation.base import TranslationMode, TranslationProvider, TranslationRequest
+from app.translation.context import ContextConfig
 from app.translation.offline import OfflineConfig, OfflineGate
 from app.translation.providers.claude_text import ClaudeConfig, ClaudeTextProvider
 from app.translation.providers.gemini_text import GeminiTextProvider
@@ -89,6 +90,7 @@ class AppConfig:
     streams: dict[str, dict[str, Any]] = None  # type: ignore[assignment]
     ui: UiConfig = UiConfig()  # UI server configuration
     provider: ProviderConfig = field(default_factory=ProviderConfig)
+    context: ContextConfig = field(default_factory=ContextConfig)
 
     def stream_settings(self, role: str) -> dict[str, Any]:
         defaults = {
@@ -125,6 +127,11 @@ class Application:
         self.keystore: KeyStore | None = None
         self.offline: OfflineGate | None = None
         self._provider: TranslationProvider | None = None
+        self._draft_provider: Any = None
+        self._draft_guard: Any = None
+        self._library: Any = None
+        self._draft_translator: Any = None
+        self._stream_languages: dict[str, str] = {}
 
     # ================================================================ запуск
 
@@ -155,6 +162,23 @@ class Application:
         # 3c. Текстовый провайдер перевода по конфигу.
         self._provider = self._build_provider()
         self.jobs.register(JobType.TRANSLATE, self._handle_translate)
+
+        # 3d. Черновики: библиотека фактов, генератор, guard.
+        from app.drafts.guardrails import DraftGuard, GuardConfig
+        from app.drafts.library import FactLibrary
+        from app.drafts.provider import DraftProvider, DraftProviderConfig
+        self._library = FactLibrary(self.db)
+        self._draft_guard = DraftGuard(self.db, GuardConfig())
+        self._draft_provider = DraftProvider(
+            provider=self._provider,
+            library=self._library,
+            config=DraftProviderConfig(),
+        )
+        self.jobs.register(JobType.DRAFT, self._handle_draft)
+
+        # 3e. Транслятор черновиков (I4).
+        from app.drafts.translate import DraftTranslator
+        self._draft_translator = DraftTranslator(self._provider, self._draft_guard)
 
         # 4. STT: один runner, один selector, один scheduler на процесс.
         runner = WhisperRunner(cfg.whisper)
@@ -226,6 +250,7 @@ class Application:
             segmenter = Segmenter(
                 SegmentConfig(role=role, session_dir=session_dir)  # type: ignore[arg-type]
             )
+            self._stream_languages[role] = settings["source_language"]
             self._segmenters[role] = segmenter
             self._pipelines.append(
                 asyncio.create_task(
@@ -235,6 +260,11 @@ class Application:
             )
 
         await self.capture.start_all()
+
+        catch_up_count = await self.offline.catch_up(self.db, self.jobs)
+        if catch_up_count:
+            log.info("catch_up: %d отложенных переводов поставлены в очередь", catch_up_count)
+
         self._session_id = session_id
         log.info("сессия %s начата (%s)", session_id, profile.value)
         return session_id
@@ -323,6 +353,17 @@ class Application:
                 idempotency_key=f"tr:{seg.id}",
             )
 
+            # DRAFT: только вопросы собеседника (role='meeting').
+            if seg.role == "meeting":
+                from app.drafts.trigger import is_question
+                lang = self._stream_languages.get("meeting", "en")
+                is_q, _ = is_question(text, lang)
+                if is_q:
+                    await self.jobs.enqueue(
+                        JobType.DRAFT, segment_id=seg.id,
+                        idempotency_key=f"dr:{seg.id}",
+                    )
+
     async def _on_stt_error(self, seg: FinalSegment, exc: BaseException) -> None:
         assert self.jobs
         await self.jobs.enqueue(
@@ -404,12 +445,15 @@ class Application:
             return
         raw_text, source_lang, target_lang = loaded
 
+        from app.translation.context import build_context
+        ctx = await build_context(self.db, segment_id, self._cfg.context)
+
         req = TranslationRequest(
             text=raw_text,
             source_language=source_lang,
             target_language=target_lang,
             mode=TranslationMode.LIVE_LITERAL,
-            context=(),
+            context=ctx,
             segment_id=segment_id,
         )
 
@@ -443,6 +487,126 @@ class Application:
                  "mode": req.mode.value,
                  "superseded_ids": []},
             )
+
+    # ================================================================ DRAFT
+
+    async def _load_draft_input(
+        self, segment_id: str
+    ) -> tuple[str, str] | None:
+        """Загрузка raw_text + target_language для черновика.
+        Черновик только на реплики собеседника (role='meeting')."""
+        assert self.db
+        row = await self.db.fetch_one(
+            "SELECT s.raw_text, a.target_language, a.role "
+            "FROM segments s JOIN audio_streams a ON a.id = s.stream_id "
+            "WHERE s.id = ?",
+            (segment_id,),
+        )
+        if not row:
+            return None
+        if row["role"] != "meeting":
+            return None
+        raw_text = row["raw_text"]
+        if not raw_text or not raw_text.strip():
+            return None
+        return raw_text.strip(), row["target_language"]
+
+    async def _handle_draft(self, job) -> None:
+        """Обработчик JobType.DRAFT: I2 → I5."""
+        assert self.db and self.offline and self._draft_provider and self._draft_guard and self._library
+        segment_id = job.segment_id
+        if not segment_id:
+            return
+
+        provider = self._provider
+        if not self.offline.should_attempt(provider.name):
+            await self.jobs.enqueue(
+                JobType.DRAFT, segment_id=segment_id,
+                idempotency_key=f"dr:{segment_id}", delay_s=30.0,
+            )
+            return
+
+        loaded = await self._load_draft_input(segment_id)
+        if loaded is None:
+            return
+        question_text, target_language = loaded
+
+        session_id = self._session_id
+        sess = await self.db.fetch_one(
+            "SELECT library_context_id FROM sessions WHERE id = ?",
+            (session_id,),
+        )
+        if not sess or not sess["library_context_id"]:
+            return
+        library_section_id = sess["library_context_id"]
+
+        from app.drafts.provider import DraftRequest
+        req = DraftRequest(
+            session_id=session_id,
+            trigger_segment_id=segment_id,
+            question_text=question_text,
+            target_language=target_language,
+            library_section_id=library_section_id,
+        )
+
+        try:
+            candidate = await self._draft_provider.generate(req, fence=job.fence)
+        except StaleGenerationError:
+            return
+        except ProviderError as exc:
+            self.offline.mark_unavailable(provider.name, exc)
+            raise
+
+        self.offline.mark_available(provider.name)
+        if candidate is None:
+            return
+
+        ctx = await self._library.get(library_section_id)
+        verdict = self._draft_guard.verify(candidate, ctx.content_text)
+        draft_id = await self._draft_guard.store(candidate, verdict)
+        if draft_id is None:
+            return
+
+        if self.ui_server:
+            self.ui_server.publish(
+                EventType.DRAFT_CREATED,
+                {
+                    "draft_id": draft_id,
+                    "trigger_segment_id": segment_id,
+                    "draft_ru": candidate.draft_ru,
+                    "sources": list(candidate.sources),
+                    "has_gaps": candidate.has_gaps_claimed,
+                    "gap_note": candidate.gap_note,
+                    "confidence": candidate.confidence,
+                    "lang_ok": candidate.lang_ok,
+                    "suggested_clarification": candidate.suggested_clarification,
+                },
+            )
+
+        # I4: перевод черновика на язык встречи. Источник = язык генерации.
+        # Недоступность перевода — ШТАТНЫЙ исход: черновик остаётся
+        # на языке генерации, задачу не роняем.
+        try:
+            translated = await self._draft_translator.translate_draft(
+                draft_id,
+                candidate.draft_ru,
+                candidate.target_language,
+                fence=job.fence,
+                source_language=req.generate_language,
+            )
+        except StaleGenerationError:
+            translated = None
+        except ProviderError as exc:
+            self.offline.mark_unavailable(provider.name, exc)
+            translated = None
+
+        if translated is not None:
+            await self._draft_guard.attach_translation(draft_id, translated)
+            if self.ui_server:
+                self.ui_server.publish(
+                    EventType.DRAFT_TRANSLATED,
+                    {"draft_id": draft_id, "draft_translated": translated},
+                )
 
     # ============================================================== остановка
 
@@ -548,6 +712,7 @@ class Application:
             },
             "db_writer": self.db.stats.snapshot() if self.db else None,
             "ui": self.ui_server.snapshot() if self.ui_server else None,
+            "draft_provider": self._draft_provider.snapshot() if self._draft_provider else None,
         }
 
     # Удобный метод для проверки готовности (используется в UI /ready)

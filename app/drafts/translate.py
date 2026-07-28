@@ -40,17 +40,23 @@ class DraftTranslator:
 
     async def translate_draft(
         self, draft_id: str, draft_ru: str, target_language: str,
-        *, fence: "Fence",
+        *, fence: "Fence", source_language: str | None = None,
     ) -> str | None:
-        """Translate a draft from Russian to target_language.
+        """Translate a draft from source_language to target_language.
+
+        source_language — язык генерации черновика (из конфига сессии).
+        По умолчанию — config.source_language ("ru").
 
         Returns the translated text if it should be attached, or None if
         translation should not be attached (e.g., same language, drift rejected,
         empty translation). The method does NOT perform attachment; that is
         done by DraftGuard.attach_translation.
         """
+        # Источник: параметр (язык генерации черновика из конфига сессии),
+        # иначе дефолт конфига. «Конфиг = источник» — решение владельца.
+        effective_source = source_language or self._config.source_language
         # Normalize languages (lowercase, strip region)
-        src = self._config.source_language.lower()
+        src = effective_source.lower()
         tgt = target_language.lower()
         # Remove any region specifier (e.g., 'ru-ru' -> 'ru')
         if "-" in src:
@@ -68,8 +74,8 @@ class DraftTranslator:
 
         req = TranslationRequest(
             text=draft_ru,
-            source_language=self._config.source_language,  # keep original for provider
-            target_language=target_language,  # keep original for provider
+            source_language=effective_source,   # язык генерации черновика
+            target_language=target_language,
             mode=self._config.mode,  # should be LIVE_LITERAL
             context=(),
             segment_id=None,

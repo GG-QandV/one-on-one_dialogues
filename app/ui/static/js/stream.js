@@ -9,6 +9,11 @@ const HEARTBEAT_MULTIPLIER = 3;
 const ORPHAN_TIMEOUT_MS = 30000;
 const JITTER_FACTOR = 0.2;
 
+function safeParseArray(s) {
+    try { const v = JSON.parse(s); return Array.isArray(v) ? v : []; }
+    catch { return []; }
+}
+
 class Stream {
     constructor({ url = '/events', snapshotUrl = '/api/snapshot', maxBackoffMs = DEFAULT_MAX_BACKOFF_MS } = {}) {
         this.url = url;
@@ -279,6 +284,10 @@ class Stream {
             draftTranslated: null,
             sources: data.sources || [],
             hasGaps: data.has_gaps || false,
+            gapNote: data.gap_note ?? null,
+            confidence: (typeof data.confidence === 'number') ? data.confidence : null,
+            langOk: (data.lang_ok === undefined) ? true : Boolean(data.lang_ok),
+            suggestedClarification: data.suggested_clarification ?? null,
             copied: false,
         });
     }
@@ -312,12 +321,28 @@ class Stream {
                 }
             }
         }
-        // Черновики
+        // Черновики: снапшот приходит в snake_case (из БД), приводим к camelCase
+        // как в _handleDraftCreated, иначе карточка не отрисуется.
         if (Array.isArray(snap.drafts)) {
             for (const d of snap.drafts) {
                 const existing = this.drafts.get(d.id);
                 if (!existing || (d.sequence != null && existing.sequence != null && d.sequence > existing.sequence)) {
-                    this.drafts.set(d.id, { ...d, sequence: d.sequence });
+                    this.drafts.set(d.id, {
+                        id: d.id,
+                        triggerSegmentId: d.trigger_segment_id,
+                        draftRu: d.draft_ru,
+                        draftTranslated: d.draft_translated ?? null,
+                        sources: (typeof d.sources_json === 'string')
+                            ? safeParseArray(d.sources_json) : (d.sources || []),
+                        hasGaps: Boolean(d.has_gaps),
+                        gapNote: d.gap_note ?? null,
+                        confidence: (typeof d.confidence === 'number') ? d.confidence : null,
+                        langOk: (d.lang_ok === undefined || d.lang_ok === null) ? true : Boolean(d.lang_ok),
+                        suggestedClarification: d.suggested_clarification ?? null,
+                        copied: d.status === 'copied',
+                        ignored: d.status === 'ignored',
+                        sequence: d.sequence,
+                    });
                 }
             }
         }

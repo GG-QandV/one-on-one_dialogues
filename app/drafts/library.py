@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import math
+import uuid
 from dataclasses import dataclass
 from typing import List
 
@@ -37,6 +38,7 @@ class FactLibrary:
     def __init__(self, db: Database, *, max_tokens: int = 30000) -> None:
         self._db = db
         self._max_tokens = max_tokens
+        self._cache: dict[str, LibraryContext] = {}
 
     @staticmethod
     def estimate_tokens(text: str) -> int:
@@ -75,6 +77,17 @@ class FactLibrary:
         ]
 
     async def get(self, context_id: str) -> LibraryContext:
+        ver = await self._db.fetch_one(
+            "SELECT updated_at FROM library_contexts WHERE id = ?",
+            (context_id,),
+        )
+        if not ver:
+            self._cache.pop(context_id, None)
+            raise InvariantViolation("library_context_not_found")
+        cached = self._cache.get(context_id)
+        if cached is not None and cached.updated_at == ver["updated_at"]:
+            return cached
+
         row = await self._db.fetch_one(
             """
             SELECT id, name, domain, content_text, token_estimate, updated_at
@@ -84,8 +97,9 @@ class FactLibrary:
             (context_id,),
         )
         if not row:
+            self._cache.pop(context_id, None)
             raise InvariantViolation("library_context_not_found")
-        return LibraryContext(
+        ctx = LibraryContext(
             id=row["id"],
             name=row["name"],
             domain=row["domain"],
@@ -93,6 +107,8 @@ class FactLibrary:
             token_estimate=row["token_estimate"],
             updated_at=row["updated_at"],
         )
+        self._cache[context_id] = ctx
+        return ctx
 
     async def upsert(self, name: str, domain: str | None, content_text: str) -> str:
         # Validate name
@@ -111,7 +127,7 @@ class FactLibrary:
         now = self._now_iso()
         if existing:
             cid = existing["id"]
-            await self._db.write(
+            await self._db.execute(
                 """
                 UPDATE library_contexts
                 SET domain = ?, content_text = ?, token_estimate = ?, updated_at = ?
@@ -120,14 +136,15 @@ class FactLibrary:
                 (domain, normalized, estimate, now, cid),
             )
         else:
-            # Insert
-            cid = await self._db.write(
+            cid = uuid.uuid4().hex
+            await self._db.execute(
                 """
-                INSERT INTO library_contexts (name, domain, content_text, token_estimate, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO library_contexts (id, name, domain, content_text, token_estimate, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (name, domain, normalized, estimate, now),
+                (cid, name, domain, normalized, estimate, now),
             )
+        self._cache.pop(cid, None)
         return cid
 
     async def delete(self, context_id: str) -> None:
@@ -140,9 +157,10 @@ class FactLibrary:
         )
         if used:
             raise InvariantViolation("library_context_in_use")
-        await self._db.write(
+        await self._db.execute(
             "DELETE FROM library_contexts WHERE id = ?", (context_id,)
         )
+        self._cache.pop(context_id, None)
 
     @staticmethod
     def _normalize(text: str) -> str:

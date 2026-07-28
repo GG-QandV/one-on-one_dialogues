@@ -30,10 +30,18 @@ function createDraftCardElement(draft, stream) {
   const triggerSeg = stream.getState().segments.find(s => s.id === draft.triggerSegmentId);
   const triggerText = triggerSeg ? triggerSeg.rawText || triggerSeg.draftText : null;
 
+  const confBadge = (typeof draft.confidence === 'number')
+    ? `<span class="badge badge-warn" style="font-size:12px">оценка ${Math.round(draft.confidence * 100)}%</span>`
+    : '';
+  const langBadge = (draft.langOk === false)
+    ? '<span class="badge badge-err" style="font-size:12px">язык под вопросом</span>'
+    : '';
   const header = document.createElement('header');
   header.innerHTML = `
     <span style="font-weight:600;color:#333">Черновик</span>
     ${draft.hasGaps ? '<span class="badge badge-err" style="font-size:12px">есть пробелы в фактах</span>' : ''}
+    ${confBadge}
+    ${langBadge}
     ${draft.copied ? '<span class="badge badge-ok">скопировано</span>' : ''}
     ${draft.ignored ? '<span style="color:#999;font-size:12px">игнорирован</span>' : ''}
   `;
@@ -63,6 +71,14 @@ function createDraftCardElement(draft, stream) {
     note.className = 'draft-gap-note';
     note.innerHTML = '<span style="font-weight:600">Пробел в фактах:</span> ' + escapeHtml(draft.gapNote);
     article.appendChild(note);
+  }
+
+  if (draft.suggestedClarification) {
+    const sugg = document.createElement('p');
+    sugg.className = 'draft-clarify';
+    sugg.innerHTML = '<span style="font-weight:600">Уточнить у собеседника:</span> '
+      + escapeHtml(draft.suggestedClarification);
+    article.appendChild(sugg);
   }
 
   const sourcesEl = document.createElement('p');
