@@ -1,0 +1,35 @@
+# Фактические 0B-файлы (пустышки)
+# 15 файлов, из них 11 __init__.py — штатно пустые
+
+## Нуждаются в коде (актуальные пустышки)
+
+app/ui/static/js/history.js
+
+## Отсутствующие серверные роуты (код есть, UI-слой не подключён)
+# добавлено агентом 2026-07-27
+
+app/ui/server.py  — отсутствуют хендлеры: _sessions_list, _session_get, _session_export
+app/ui/routes.py  — отсутствуют роуты: GET /api/sessions, GET /api/sessions/{id}, GET /api/sessions/{id}/export.{fmt}
+
+## Тесты
+
+tests/conftest.py
+
+## Штатные __init__.py (пакетные маркеры, 0B — норма)
+
+app/__init__.py
+app/audio/__init__.py
+app/delivery/__init__.py
+app/drafts/__init__.py
+app/exports/__init__.py
+app/security/__init__.py
+app/stt/__init__.py
+app/translation/__init__.py
+app/translation/providers/__init__.py
+app/ui/__init__.py
+app/watchdog/__init__.py
+
+## Прочее
+
+LICENSE                   # шаблон лицензии, 0B — можно заполнить MIT
+tests/__init__.py          # пакетный маркер
