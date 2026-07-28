@@ -8,6 +8,9 @@ speech-local/
 ├── config.example.toml                 [1.3K]
 ├── INTERFACES.md                       [  35K]  # block A1: inter-module signatures
 ├── TREE_speech_local.txt               [9.8K]  # auto-tree
+├── .claude/                            [4.0K]  # project settings
+│   ├── settings.json                        [  81B]
+│
 ├── backup/                             [4.0K]  # доп материалы
 │   ├── 0007_draft_confidence.sql            [ 629B]
 │   ├── backup_docs/                         [4.0K]
