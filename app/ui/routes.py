@@ -1,5 +1,7 @@
 """app/ui/routes.py — route setup for E1 UI SSE server."""
 
+from pathlib import Path
+
 from aiohttp import web
 
 
@@ -25,4 +27,10 @@ def setup_routes(app: web.Application, ui_server) -> None:
     # We'll add a static route if the config has a static_path attribute.
     static_path = getattr(ui_server._config, "static_path", None)
     if static_path:
+        index_path = Path(static_path) / "index.html"
+
+        async def _index_handler(request: web.Request) -> web.FileResponse:
+            return web.FileResponse(index_path)
+
+        app.router.add_get("/", _index_handler)
         app.router.add_static("/static", static_path, name="static")
