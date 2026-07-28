@@ -1,19 +1,37 @@
-# Фактические 0B-файлы (пустышки)
+# Фактические 0B-файлы (пустышки) — журнал
 # 15 файлов, из них 11 __init__.py — штатно пустые
 
-## Нуждаются в коде (актуальные пустышки)
+## Закрыто (финализация one-on-one_dialogues)
 
 app/ui/static/js/history.js
+  — реализована вкладка «История»: список сессий, просмотр реплик/черновиков, экспорт.
 
-## Отсутствующие серверные роуты (код есть, UI-слой не подключён)
-# добавлено агентом 2026-07-27
+app/ui/server.py, app/ui/routes.py
+  — добавлены хендлеры _sessions_list, _session_get, _session_export
+    и роуты GET /api/sessions, GET /api/sessions/{id}, GET /api/sessions/{id}/export.{fmt}.
+    Проверено smoke-тестом на реальной SQLite (list/get/export txt|srt|vtt|json, 404, 400).
 
-app/ui/server.py  — отсутствуют хендлеры: _sessions_list, _session_get, _session_export
-app/ui/routes.py  — отсутствуют роуты: GET /api/sessions, GET /api/sessions/{id}, GET /api/sessions/{id}/export.{fmt}
+LICENSE
+  — заполнен MIT, правообладатель GG-QandV.
 
-## Тесты
+## Проверено, код не требуется
 
 tests/conftest.py
+  — файл 0B, но ни один из 302 тестов на него не полагается (каждый определяет
+    свои фикстуры локально, включая `db`). Полный прогон pytest зелёный без содержимого
+    файла. Упоминание "conftest.py" в CONTRACTS/H2_acceptance.md относится к ДРУГОМУ,
+    ещё не созданному файлу — tests/acceptance/conftest.py (пакет приёмочного стенда H2,
+    Senior, ~450 LOC) — это отдельная незакрытая задача, не текущая пустышка.
+
+## Побочно найдено и исправлено при проверке
+
+pyproject.toml
+  — build-backend был битым ("setuptools.backends._legacy:_Backend", несуществующий
+    модуль) — pip install -e . падал с ModuleNotFoundError. Исправлено на
+    "setuptools.build_meta" + добавлен [tool.setuptools.packages.find] include=["app*"]
+    (без него setuptools не мог однозначно определить пакет из-за scripts/, tests/,
+    migrations/, CONTRACTS/, backup/ в корне). Проверено на Python 3.12 (требование
+    проекта) — pip install -e ".[dev]" и все тесты проходят.
 
 ## Штатные __init__.py (пакетные маркеры, 0B — норма)
 
@@ -28,8 +46,4 @@ app/translation/__init__.py
 app/translation/providers/__init__.py
 app/ui/__init__.py
 app/watchdog/__init__.py
-
-## Прочее
-
-LICENSE                   # шаблон лицензии, 0B — можно заполнить MIT
-tests/__init__.py          # пакетный маркер
+tests/__init__.py
