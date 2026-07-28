@@ -15,8 +15,11 @@ import json
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
+from dataclasses import replace
+
 from app.drafts.guardrails import DraftCandidate
 from app.drafts.library import LibraryContext
+from app.drafts.langcheck import check_language
 from app.privacy import Fence
 from app.translation.base import (
     TranslationMode,
@@ -45,8 +48,10 @@ class DraftProviderConfig:
     #: Prompt caching префикса библиотеки. Требует поддержки провайдером;
     #: при отсутствии — работает без кэша, gap фиксируется в snapshot.
     cache_library: bool = False
-    #: Язык генерации черновика. Всегда русский (спека §12).
-    generate_language: str = "ru"
+    #: Дефолт, ЕСЛИ панель не передала. Реальный язык — из
+    #: DraftRequest.generate_language (цепочка клиент→юзер→en разрешается
+    #: в панели ДО вызова I2).
+    default_language: str = "en"
 
 
 # --------------------------------------------------------------------- request
@@ -58,6 +63,11 @@ class DraftRequest:
     question_text: str          # реплика клиента (raw_text)
     target_language: str        # язык встречи — для последующего I4
     library_section_id: str     # активный раздел (I1)
+    #: Итоговый язык генерации из панели (клиент→юзер→en уже разрешён).
+    generate_language: str = "en"
+    #: Тон из панели: пресет + свободное уточнение.
+    tone_preset: str = "neutral"
+    tone_note: str = ""
 
 
 # --------------------------------------------------------------------- provider
@@ -84,6 +94,8 @@ class DraftProvider:
             "empty_library": 0,
             "parse_failed": 0,
             "cache_unsupported": 0,
+            "lang_retry": 0,
+            "lang_failed": 0,
         }
 
     async def generate(
@@ -94,46 +106,79 @@ class DraftProvider:
         fence приходит ОТ вызывающего (обработчик JobType.DRAFT). require()
         внутри НЕ вызывается — тот же инвариант, что base.py и I4.
         """
-        # 1. Пустой вопрос — генерировать нечего
+        candidate = await self._generate_once(req, fence, strict_lang=False)
+        if candidate is None:
+            return None
+
+        # Языковая проверка + 1 retry (решение: скрипт + n-gram, иначе флаг).
+        candidate = await self._verify_language(candidate, req, fence)
+
+        self._snapshot["generated"] += 1
+        return candidate
+
+    # ------------------------------------------------------- single generation
+
+    async def _library_text(self, req: DraftRequest) -> str | None:
         if not req.question_text or not req.question_text.strip():
             self._snapshot["empty_question"] += 1
             return None
-
-        # 2. Библиотека целиком (без RAG, §12)
         try:
             ctx = await self._library.get(req.library_section_id)
         except Exception:  # noqa: BLE001
             self._snapshot["empty_library"] += 1
             return None
-        library_text = ctx.content_text
-        if not library_text or not library_text.strip():
+        text = ctx.content_text
+        if not text or not text.strip():
             self._snapshot["empty_library"] += 1
             return None
+        return text
 
-        # 3. Собрать промпт: библиотека = стабильный префикс, вопрос = переменная
+    async def _generate_once(
+        self, req: DraftRequest, fence: Fence, *, strict_lang: bool
+    ) -> DraftCandidate | None:
+        library_text = await self._library_text(req)
+        if library_text is None:
+            return None
         prompt = self._build_prompt(library_text, req.question_text)
-
-        # 4. Вызвать LLM через translate (фактический API D1)
+        if strict_lang:
+            prompt = (
+                f"[ВАЖНО: отвечай строго на языке {req.generate_language}, "
+                f"это критично]\n\n" + prompt
+            )
+        lang = req.generate_language or self._config.default_language
         llm_request = TranslationRequest(
-            text=prompt,                        # СПРАВКА + ВОПРОС (см. _build_prompt)
-            source_language=self._config.generate_language,
-            target_language=self._config.generate_language,  # генерация на ru, не перевод
-            mode=TranslationMode.DRAFT,         # отдельный промпт, без вложенности
+            text=prompt,
+            source_language=lang,
+            target_language=lang,
+            mode=TranslationMode.DRAFT,
             context=(),
             segment_id=None,
         )
-
-        # Провайдерские ошибки пробрасываем — обработчик DRAFT решит ретрай (queue).
         result = await self._provider.translate(llm_request, fence=fence)
-
-        # 5. Разобрать ответ в кандидата
         candidate = self._parse(result.translation_raw, req)
         if candidate is None:
             self._snapshot["parse_failed"] += 1
-            return None
-
-        self._snapshot["generated"] += 1
         return candidate
+
+    # ------------------------------------------------------- language verify
+
+    async def _verify_language(
+        self, candidate: DraftCandidate, req: DraftRequest, fence: Fence
+    ) -> DraftCandidate:
+        v = check_language(candidate.draft_ru, req.generate_language)
+        if v.ok:
+            return candidate
+
+        self._snapshot["lang_retry"] += 1
+        second = await self._generate_once(req, fence, strict_lang=True)
+        if second is None:
+            return candidate                      # отдать первый как есть
+
+        v2 = check_language(second.draft_ru, req.generate_language)
+        if v2.ok:
+            return second
+        self._snapshot["lang_failed"] += 1
+        return replace(second, lang_ok=False)     # флаг для UI
 
     # ------------------------------------------------------------- prompt
 
@@ -167,7 +212,7 @@ class DraftProvider:
         except (json.JSONDecodeError, ValueError):
             return None
 
-        answer = data.get("answer")
+        answer = data.get("draft_ru")          # было "answer" (новый контракт)
         if not isinstance(answer, str) or not answer.strip():
             return None
 
@@ -185,6 +230,11 @@ class DraftProvider:
         marker_present = self._config.gap_marker.lower() in answer.lower()
         has_gaps_claimed = bool(data.get("has_gaps")) or marker_present
 
+        conf = data.get("confidence")
+        confidence = float(conf) if isinstance(conf, (int, float)) else None
+        sugg = data.get("suggested_clarification")
+        suggested = str(sugg) if isinstance(sugg, str) and sugg.strip() else None
+
         return DraftCandidate(
             session_id=req.session_id,
             trigger_segment_id=req.trigger_segment_id,
@@ -193,6 +243,8 @@ class DraftProvider:
             sources=sources,
             has_gaps_claimed=has_gaps_claimed,
             gap_note=gap_note,
+            confidence=confidence,
+            suggested_clarification=suggested,
         )
 
     # ------------------------------------------------------------- snapshot

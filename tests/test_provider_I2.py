@@ -66,10 +66,12 @@ def _fence(provider: FakeProvider):
 
 
 def _good_response(answer="Стандартная цена 30000 рублей за лицензию.",
-                   sources=("Прайс-лист",), has_gaps=False, gap_note=None):
+                   sources=("Прайс-лист",), has_gaps=False, gap_note=None,
+                   confidence=None, suggested_clarification=None):
     return json.dumps({
-        "answer": answer, "sources": list(sources),
+        "draft_ru": answer, "sources": list(sources),
         "has_gaps": has_gaps, "gap_note": gap_note,
+        "confidence": confidence, "suggested_clarification": suggested_clarification,
     }, ensure_ascii=False)
 
 
@@ -82,7 +84,8 @@ async def test_generates_candidate_with_fact_in_library():
     lib = FakeLibrary("Прайс-лист: цена 30000 рублей за лицензию.")
     i2 = DraftProvider(provider, lib)
 
-    req = DraftRequest("s1", "seg1", "Сколько стоит лицензия?", "en", "lib1")
+    req = DraftRequest("s1", "seg1", "Сколько стоит лицензия?", "en", "lib1",
+                       generate_language="ru")
     cand = await i2.generate(req, fence=_fence(provider))
 
     assert isinstance(cand, DraftCandidate)
@@ -100,7 +103,8 @@ async def test_gap_when_no_fact_in_library():
     lib = FakeLibrary("Прайс-лист: цена 30000.")
     i2 = DraftProvider(provider, lib)
 
-    req = DraftRequest("s1", "seg1", "Какая гарантия?", "en", "lib1")
+    req = DraftRequest("s1", "seg1", "Какая гарантия?", "en", "lib1",
+                       generate_language="ru")
     cand = await i2.generate(req, fence=_fence(provider))
 
     assert cand.has_gaps_claimed is True
@@ -114,8 +118,9 @@ async def test_library_inserted_whole_into_prompt():
     provider = FakeProvider(_good_response())
     lib = FakeLibrary(lib_text)
     i2 = DraftProvider(provider, lib)
+    req = DraftRequest("s1", "seg1", "Сколько?", "en", "lib1",
+                       generate_language="ru")
 
-    req = DraftRequest("s1", "seg1", "Сколько?", "en", "lib1")
     await i2.generate(req, fence=_fence(provider))
 
     assert f"СПРАВКА:\n{lib_text}" in provider.last_request.text
@@ -129,7 +134,8 @@ async def test_draft_is_russian_regardless_of_target():
     lib = FakeLibrary("цена 30000.")
     i2 = DraftProvider(provider, lib)
 
-    req = DraftRequest("s1", "seg1", "Сколько?", "pl", "lib1")
+    req = DraftRequest("s1", "seg1", "Сколько?", "pl", "lib1",
+                       generate_language="ru")
     await i2.generate(req, fence=_fence(provider))
 
     assert provider.last_request.source_language == "ru"
@@ -145,7 +151,8 @@ async def test_gap_marker_in_text_forces_has_gaps():
     lib = FakeLibrary("цена 30000.")
     i2 = DraftProvider(provider, lib)
 
-    req = DraftRequest("s1", "seg1", "Гарантия?", "en", "lib1")
+    req = DraftRequest("s1", "seg1", "Гарантия?", "en", "lib1",
+                       generate_language="ru")
     cand = await i2.generate(req, fence=_fence(provider))
 
     assert cand.has_gaps_claimed is True   # форсировано по факту
@@ -159,7 +166,8 @@ async def test_unverified_number_not_stripped_by_i2():
     lib = FakeLibrary("Прайс: 30000.")   # 99999 нет в библиотеке
     i2 = DraftProvider(provider, lib)
 
-    req = DraftRequest("s1", "seg1", "Цена?", "en", "lib1")
+    req = DraftRequest("s1", "seg1", "Цена?", "en", "lib1",
+                       generate_language="ru")
     cand = await i2.generate(req, fence=_fence(provider))
 
     assert "99999" in cand.draft_ru   # I2 не тронул; отбракует I5
@@ -223,7 +231,8 @@ async def test_require_not_called_inside():
     from app.privacy import Fence
     fence = Fence(PrivacyProfile.OPEN, 0)
 
-    req = DraftRequest("s1", "seg1", "Сколько?", "en", "lib1")
+    req = DraftRequest("s1", "seg1", "Сколько?", "en", "lib1",
+                       generate_language="ru")
     cand = await i2.generate(req, fence=fence)   # не должно звать require
     assert cand is not None
 
@@ -235,7 +244,8 @@ async def test_malformed_json_returns_none():
     lib = FakeLibrary("цена 30000.")
     i2 = DraftProvider(provider, lib)
 
-    req = DraftRequest("s1", "seg1", "Сколько?", "en", "lib1")
+    req = DraftRequest("s1", "seg1", "Сколько?", "en", "lib1",
+                       generate_language="ru")
     cand = await i2.generate(req, fence=_fence(provider))
 
     assert cand is None
@@ -250,7 +260,8 @@ async def test_json_fence_wrapper_stripped():
     lib = FakeLibrary("Прайс: 30000.")
     i2 = DraftProvider(provider, lib)
 
-    req = DraftRequest("s1", "seg1", "Цена?", "en", "lib1")
+    req = DraftRequest("s1", "seg1", "Цена?", "en", "lib1",
+                       generate_language="ru")
     cand = await i2.generate(req, fence=_fence(provider))
 
     assert cand is not None
@@ -264,12 +275,80 @@ async def test_candidate_carries_trigger_and_target():
     lib = FakeLibrary("цена 30000.")
     i2 = DraftProvider(provider, lib)
 
-    req = DraftRequest("sX", "segY", "Сколько?", "es", "lib1")
+    req = DraftRequest("sX", "segY", "Сколько?", "es", "lib1",
+                       generate_language="ru")
     cand = await i2.generate(req, fence=_fence(provider))
 
     assert cand.trigger_segment_id == "segY"
     assert cand.target_language == "es"
     assert cand.session_id == "sX"
+
+
+@pytest.mark.asyncio
+async def test_parse_confidence_and_suggested():
+    """confidence и suggested_clarification из ответа модели."""
+    resp = _good_response(answer="Цена 30000 руб.", confidence=0.75,
+                          suggested_clarification="Уточнить бюджет?")
+    provider = FakeProvider(resp)
+    lib = FakeLibrary("цена 30000.")
+    i2 = DraftProvider(provider, lib)
+
+    req = DraftRequest("s1", "seg1", "Сколько?", "en", "lib1",
+                       generate_language="ru")
+    cand = await i2.generate(req, fence=_fence(provider))
+
+    assert cand is not None
+    assert cand.confidence == 0.75
+    assert cand.suggested_clarification == "Уточнить бюджет?"
+
+
+@pytest.mark.asyncio
+async def test_lang_check_retry_on_fail():
+    """Провал L1 → retry → успех (2 вызова провайдера)."""
+    # Первый ответ на английском (провал L1), второй — нормальный
+    responses = [
+        _good_response(answer="Price is 30000 rubles."),   # en, не ru
+        _good_response(answer="Цена 30000 рублей."),        # ru, ок
+    ]
+    provider = FakeProvider()
+    provider._responses = responses
+    provider._call_counter = 0
+
+    async def translating(req, *, fence):
+        resp = provider._responses[provider._call_counter]
+        provider._call_counter += 1
+        provider.last_request = req
+        return TranslationResult(translation_raw=resp)
+
+    provider.translate = translating
+    lib = FakeLibrary("цена 30000.")
+    i2 = DraftProvider(provider, lib)
+
+    req = DraftRequest("s1", "seg1", "Сколько?", "en", "lib1",
+                       generate_language="ru")
+    cand = await i2.generate(req, fence=_fence(provider))
+
+    assert cand is not None
+    assert provider._call_counter == 2
+    assert cand.lang_ok is True
+    assert "Цена" in cand.draft_ru
+
+
+@pytest.mark.asyncio
+async def test_lang_double_fail_sets_lang_ok_false():
+    """Двойной провал → lang_ok=False в кандидате."""
+    provider = FakeProvider(
+        _good_response(answer="Price is 30000 rubles.")  # на английском
+    )
+    lib = FakeLibrary("цена 30000.")
+    i2 = DraftProvider(provider, lib)
+
+    req = DraftRequest("s1", "seg1", "Сколько?", "en", "lib1",
+                       generate_language="ru")
+    cand = await i2.generate(req, fence=_fence(provider))
+
+    assert cand is not None
+    assert cand.lang_ok is False
 
 
 @pytest.mark.asyncio
@@ -279,7 +358,8 @@ async def test_uses_draft_mode_not_postclean():
     lib = FakeLibrary("цена 30000.")
     i2 = DraftProvider(provider, lib)
 
-    req = DraftRequest("s1", "seg1", "Сколько?", "en", "l1")
+    req = DraftRequest("s1", "seg1", "Сколько?", "en", "l1",
+                       generate_language="ru")
     await i2.generate(req, fence=_fence(provider))
 
     assert provider.last_request.mode == TranslationMode.DRAFT
@@ -292,7 +372,8 @@ async def test_snapshot_counts_generated():
     lib = FakeLibrary("цена 30000.")
     i2 = DraftProvider(provider, lib)
 
-    req = DraftRequest("s1", "seg1", "Сколько?", "en", "lib1")
+    req = DraftRequest("s1", "seg1", "Сколько?", "en", "lib1",
+                       generate_language="ru")
     await i2.generate(req, fence=_fence(provider))
     await i2.generate(req, fence=_fence(provider))
 

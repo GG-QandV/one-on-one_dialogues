@@ -82,6 +82,20 @@ class TestDraftGuard:
         verdict = guard.verify(candidate, "стандартная цена 30000 рублей")
         assert verdict.kind is VerdictKind.ACCEPT
 
+    def test_default_soft_accepts_gapped_number(self):
+        """Дефолт (strict_numbers=False) → ACCEPT_WITH_GAPS при числах вне библиотеки + has_gaps."""
+        guard = DraftGuard.__new__(DraftGuard)
+        guard._cfg = GuardConfig()          # дефолт strict_numbers=False
+
+        candidate = DraftCandidate(
+            session_id="s1", trigger_segment_id="seg1",
+            draft_ru="ориентировочно 50000 рублей",
+            target_language="ru", sources=("lib1",),
+            has_gaps_claimed=True, gap_note="цена не в справке",
+        )
+        verdict = guard.verify(candidate, "стандартная цена 30000 рублей")
+        assert verdict.kind is VerdictKind.ACCEPT_WITH_GAPS
+
     def test_rejects_when_no_sources_and_no_gaps(self):
         guard = DraftGuard.__new__(DraftGuard)
         guard._cfg = GuardConfig(strict_numbers=False)

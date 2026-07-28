@@ -110,6 +110,13 @@ class DraftCandidate:
     sources: tuple[str, ...]
     has_gaps_claimed: bool
     gap_note: str | None
+    #: Уверенность для случая B/C (умозаключение). None = факт (случай A).
+    #: Служебное поле: видно в UI, в текст черновика НЕ попадает.
+    confidence: float | None = None
+    #: Рекомендуемый вопрос к собеседнику при пробеле. None = уточнять нечего.
+    suggested_clarification: str | None = None
+    #: Язык ответа прошёл проверку. False = после retry язык всё ещё мимо.
+    lang_ok: bool = True
 
 
 class DraftGuard:
@@ -192,8 +199,9 @@ class DraftGuard:
                     INSERT INTO draft_answers
                            (id, session_id, trigger_segment_id, draft_ru,
                             target_language, sources_json, has_gaps, gap_note,
+                            confidence, suggested_clarification, lang_ok,
                             status, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'generated', ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'generated', ?)
                     """,
                     (
                         draft_id,
@@ -204,6 +212,9 @@ class DraftGuard:
                         json.dumps(list(candidate.sources), ensure_ascii=False),
                         int(has_gaps),
                         candidate.gap_note,
+                        candidate.confidence,
+                        candidate.suggested_clarification,
+                        int(candidate.lang_ok),
                         now,
                     ),
                 )
