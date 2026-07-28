@@ -9,6 +9,75 @@ speech-local/
 ├── INTERFACES.md                       [  35K]  # block A1: inter-module signatures
 ├── TREE_speech_local.txt               [9.8K]  # auto-tree
 ├── backup/                             [4.0K]  # доп материалы
+│   ├── 0007_draft_confidence.sql            [ 629B]
+│   ├── backup_docs/                         [4.0K]
+│   │   ├── CODE+pipeline/                       [4.0K]
+│   │   │   ├── C6_whisper_parser.md
+│   │   │   ├── C8_language.md
+│   │   │   ├── D1_provider_base+patch.md
+│   │   │   ├── D1_provider_base.md
+│   │   │   ├── D2_gemini_text.md
+│   │   │   ├── D4_prompts.md
+│   │   │   ├── I3_drafts_trigger.md
+│   │   │   └── INTERFACES.md
+│   │   ├── CONFIG_vars.md
+│   │   ├── Fiks/                              [4.0K]
+│   │   │   ├── drift_20.json
+│   │   │   ├── prompts_spec_11.json
+│   │   │   └── TASK_D1_D4.md
+│   │   ├── H6_acceptance.md
+│   │   ├── library_knowledge_base.md
+│   │   ├── ROADMAP_speech_local.md
+│   │   ├── SPEC_speech_local_MVP.md
+│   │   ├── TODO_tiers.md
+│   │   ├── TREE_speech_local.txt
+│   │   ├── TREE_пустышки.txt
+│   │   ├── UI_dashboard_spec.md
+│   │   ├── work_docs/                         [4.0K]
+│   │   │   ├── Batch_with_corrections.md
+│   │   │   ├── C3_normalizer.md
+│   │   │   ├── code_файлы_files02.md
+│   │   │   ├── code_файлы_files03.md
+│   │   │   ├── code_файлы_files04.md
+│   │   │   ├── code_файлы_files05.md
+│   │   │   ├── DRAFT_handler_block.md
+│   │   │   ├── E4_completion_block.md
+│   │   │   ├── E4_tab_drafts.md
+│   │   │   ├── E5_tab_diagnostics.md
+│   │   │   ├── E6_topbar.md
+│   │   │   ├── E7_settings.md
+│   │   │   ├── E8_history.md
+│   │   │   ├── HANDOFF_verification_context.md
+│   │   │   ├── I3_trigger_spec.md
+│   │   │   ├── I4_wiring_block.md
+│   │   │   ├── MD_patch_filesD6.md
+│   │   │   ├── MD_файл_files07.txt
+│   │   │   ├── MD_файл_files08.txt
+│   │   │   ├── MD_файл_files09.txt
+│   │   │   ├── MD_файл_files10.txt
+│   │   │   ├── MD_файл_files11.txt
+│   │   │   ├── MD_файлы_files06.md
+│   │   │   ├── MIGRATION_I2_I5_diff.md
+│   │   │   ├── PATCH_draft_mode.md
+│   │   │   ├── PATCH_H1_translate_handler.md
+│   │   │   ├── PATCH_H1_translate.md
+│   │   │   ├── TASK_architect_contracts.md
+│   │   │   ├── TASK_E2_E3_fix.md
+│   │   │   ├── TASK_fix_base_D1.md
+│   │   │   ├── TASK_middle_junior.md
+│   │   │   ├── TASK_middle_tier1.md
+│   │   │   ├── TASK_remaining_code.md
+│   │   │   ├── TASK_REVISION_full.md
+│   │   │   ├── TASK_senior_audit.md
+│   │   │   ├── TASK_wave1_fixes.md
+│   │   │   ├── TASK_wave2.md
+│   │   │   ├── WORKFLOW_finalization.md
+│   │   │   ├── Инструкция агенту  Junior.md
+│   │   │   ├── Инструкция исполнителю- реализация 23 контрактов.md
+│   │   │   ├── Расхождение закрыто.md
+│   │   │   └── Три файла - задание + обе фикстуры.md
+│   │   ├── Куда_класть_файлы_files01.md
+│   │   └── опиши_логику_speech_translate.md
 │
 ├── backups/                            [4.0K]  # доп материалы (тир 2)
 │   ├── .gitkeep                             [   0B]
