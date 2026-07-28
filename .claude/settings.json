@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 scripts/c0_spike.py*)",
+      "Bash(bash scripts/install_whispercpp.sh*)"
+    ]
+  }
+}

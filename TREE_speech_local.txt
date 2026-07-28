@@ -1,4 +1,6 @@
 speech-local/
+├── .claude/                               [4.0K]  # project settings
+│   └── settings.json                          [141B]
 ├── .env.example                           [720B]  # template; real .env NOT committed
 ├── .gitignore                             [141B]
 ├── CONTRACTS/                             [4.0K]  # block A2: one file = one task
@@ -31,7 +33,7 @@ speech-local/
 ├── INTERFACES.md                          [ 34K]  # block A1: inter-module signatures
 ├── LICENSE                                [1.0K]
 ├── README.md                              [2.9K]  # landing / overview
-├── TREE_speech_local.txt                  [ 18K]  # auto-tree
+├── TREE_speech_local.txt                  [ 16K]  # auto-tree
 ├── app/                                   [4.0K]
 │   ├── __init__.py                            [  0B]
 │   ├── audio/                                 [4.0K]
@@ -136,7 +138,7 @@ speech-local/
 │       ├── ROADMAP_speech_local.md                [ 27K]
 │       ├── SPEC_speech_local_MVP.md               [ 21K]
 │       ├── TODO_tiers.md                          [5.1K]
-│       ├── TREE_speech_local.txt                  [ 18K]
+│       ├── TREE_speech_local.txt                  [ 16K]
 │       ├── TREE_пустышки.txt                      [2.6K]
 │       ├── UI_dashboard_spec.md                   [2.2K]
 │       ├── library_knowledge_base.md              [ 19K]
