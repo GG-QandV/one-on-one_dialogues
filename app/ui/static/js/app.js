@@ -35,6 +35,12 @@
     copyDraft: (draftId, text) =>
       fetch('/api/clipboard', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ draft_id: draftId, text }) })
         .then(r => r.ok),
+    listSessions: () =>
+      fetch('/api/sessions').then(r => r.json()),
+    getSession: (id) =>
+      fetch(`/api/sessions/${id}`).then(r => r.json()),
+    exportSessionUrl: (id, fmt) =>
+      `/api/sessions/${id}/export.${fmt}`,
   };
 
   window.commands = commands;
@@ -56,6 +62,7 @@
     settings: createSettings({ container: document.getElementById('settings-panel'), stream, commands }),
     diagnostics: createDiagnostics({ container: document.getElementById('tab-diagnostics'), stream, commands }),
     drafts: createDrafts({ container: document.getElementById('tab-drafts'), stream, commands }),
+    history: createHistory({ container: document.getElementById('tab-history'), commands }),
   };
 
   Object.values(components).forEach(c => c.mount && c.mount());

@@ -332,6 +332,45 @@ body {
 .badge-err { background: #ffebee; color: #c62828; }
 .badge-info { background: #e3f2fd; color: #1565c0; }
 
+/* History (E8) */
+#tab-history.active {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.history-list {
+  flex: 0 0 260px;
+  max-height: calc(100vh - 200px);
+  overflow-y: auto;
+}
+
+.history-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  margin-bottom: 6px;
+  cursor: pointer;
+}
+
+.history-item:hover {
+  background: #f5f5f5;
+}
+
+.history-item.active {
+  border-color: #1976d2;
+  background: #e3f2fd;
+}
+
+.history-detail {
+  flex: 1;
+  min-width: 0;
+}
+
 /* Draft cards */
 .draft-card {
   border: 1px solid #e0e0e0;

@@ -249,3 +249,113 @@ class UiServer:
         from app.delivery.clipboard import copy
         ok = await copy(text)
         return web.json_response({"ok": ok})
+
+    # ---------------------------------------------------------- E8 history
+
+    async def _sessions_list_handler(self, request: web.Request) -> web.Response:
+        db = getattr(self._app, "db", None)
+        if db is None:
+            return web.json_response({"error": "not implemented"}, status=501)
+        rows = await db.fetch_all(
+            "SELECT id, started_at, ended_at, meeting_title, status, "
+            "default_privacy_profile, mode FROM sessions "
+            "ORDER BY started_at DESC"
+        )
+        return web.json_response({"sessions": [dict(row) for row in rows]})
+
+    async def _session_get_handler(self, request: web.Request) -> web.Response:
+        db = getattr(self._app, "db", None)
+        if db is None:
+            return web.json_response({"error": "not implemented"}, status=501)
+        session_id = request.match_info["session_id"]
+        session_row = await db.fetch_one(
+            "SELECT * FROM sessions WHERE id = ?", (session_id,)
+        )
+        if session_row is None:
+            return web.json_response({"error": "not found"}, status=404)
+        segment_rows = await db.fetch_all(
+            "SELECT s.*, a.role AS role FROM segments s "
+            "JOIN audio_streams a ON a.id = s.stream_id "
+            "WHERE s.session_id = ? ORDER BY s.t_start_ms",
+            (session_id,),
+        )
+        draft_rows = await db.fetch_all(
+            "SELECT * FROM draft_answers WHERE session_id = ? ORDER BY created_at",
+            (session_id,),
+        )
+        return web.json_response(
+            {
+                "session": dict(session_row),
+                "segments": [self._segment_to_dict(row) for row in segment_rows],
+                "drafts": [self._draft_to_dict(row) for row in draft_rows],
+            }
+        )
+
+    async def _session_export_handler(self, request: web.Request) -> web.Response:
+        db = getattr(self._app, "db", None)
+        if db is None:
+            return web.json_response({"error": "not implemented"}, status=501)
+        session_id = request.match_info["session_id"]
+        fmt = request.match_info["fmt"]
+        if fmt not in ("txt", "srt", "vtt", "json"):
+            return web.json_response({"error": "unsupported format"}, status=400)
+        session_row = await db.fetch_one(
+            "SELECT * FROM sessions WHERE id = ?", (session_id,)
+        )
+        if session_row is None:
+            return web.json_response({"error": "not found"}, status=404)
+        segment_rows = await db.fetch_all(
+            "SELECT s.*, a.role AS role FROM segments s "
+            "JOIN audio_streams a ON a.id = s.stream_id "
+            "WHERE s.session_id = ? ORDER BY s.t_start_ms",
+            (session_id,),
+        )
+
+        if fmt == "txt":
+            from app.exports.txt import to_txt
+            body, content_type = to_txt(segment_rows), "text/plain"
+        elif fmt == "srt":
+            from app.exports.subtitles import to_srt
+            body, content_type = to_srt(segment_rows), "application/x-subrip"
+        elif fmt == "vtt":
+            from app.exports.subtitles import to_vtt
+            body, content_type = to_vtt(segment_rows), "text/vtt"
+        else:
+            from app.exports.json_export import to_json
+            draft_rows = await db.fetch_all(
+                "SELECT * FROM draft_answers WHERE session_id = ? ORDER BY created_at",
+                (session_id,),
+            )
+            body = to_json(dict(session_row), segment_rows, draft_rows)
+            content_type = "application/json"
+
+        return web.Response(
+            text=body,
+            content_type=content_type,
+            charset="utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="session_{session_id}.{fmt}"'
+            },
+        )
+
+    @staticmethod
+    def _segment_to_dict(row: Any) -> dict[str, Any]:
+        d = dict(row)
+        edit_log = d.get("edit_log_json")
+        if edit_log:
+            try:
+                d["edit_log_json"] = json.loads(edit_log)
+            except (json.JSONDecodeError, TypeError):
+                d["edit_log_json"] = None
+        return d
+
+    @staticmethod
+    def _draft_to_dict(row: Any) -> dict[str, Any]:
+        d = dict(row)
+        sources = d.get("sources_json")
+        if sources:
+            try:
+                d["sources_json"] = json.loads(sources)
+            except (json.JSONDecodeError, TypeError):
+                d["sources_json"] = []
+        return d
