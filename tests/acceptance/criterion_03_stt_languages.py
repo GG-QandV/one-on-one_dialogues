@@ -74,9 +74,13 @@ async def _run(env: CheckEnv) -> CheckResult:
         meta = json.loads((FIXTURES_DIR / f"{lang}.json").read_text(encoding="utf-8"))
         expected_text = meta["expected_text"]
         wer_threshold = meta["wer_threshold"]
-        result = await runner.transcribe(
-            FIXTURES_DIR / f"{lang}.wav", meta["audio_ms"], language=lang
-        )
+        # WhisperRunner.transcribe() пишет свой JSON-вывод рядом с WAV, по
+        # имени <basename>.json — то же имя, что у нашей фикстуры с
+        # expected_text. Прогоняем на копии во временной директории, чтобы
+        # не затирать метаданные фикстуры выводом whisper.cpp.
+        wav_copy = env.tmp_dir / f"{lang}.wav"
+        shutil.copy2(FIXTURES_DIR / f"{lang}.wav", wav_copy)
+        result = await runner.transcribe(wav_copy, meta["audio_ms"], language=lang)
         # whisper.cpp -oj кладёт текст в payload["transcription"][].text,
         # а не в payload["text"] — переиспользуем штатный парсер (C6),
         # а не свой разбор JSON.
