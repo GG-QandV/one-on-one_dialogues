@@ -359,3 +359,111 @@ class UiServer:
             except (json.JSONDecodeError, TypeError):
                 d["sources_json"] = []
         return d
+
+    # -------------------------------------------------------- E7 settings
+
+    async def _key_put_handler(self, request: web.Request) -> web.Response:
+        keystore = getattr(self._app, "keystore", None)
+        if keystore is None:
+            return web.json_response({"error": "not implemented"}, status=501)
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid JSON"}, status=400)
+        provider = data.get("provider")
+        key = data.get("key")
+        if not provider or not key:
+            return web.json_response({"error": "provider and key required"}, status=400)
+        from app.errors import ProviderAuthError
+
+        try:
+            keystore.put(provider, key)
+        except ProviderAuthError as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+        return web.json_response({"masked": keystore.masked(provider)})
+
+    async def _key_revoke_handler(self, request: web.Request) -> web.Response:
+        keystore = getattr(self._app, "keystore", None)
+        if keystore is None:
+            return web.json_response({"error": "not implemented"}, status=501)
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        keystore.revoke(data.get("provider"))
+        return web.Response(status=204)
+
+    async def _languages_handler(self, request: web.Request) -> web.Response:
+        if not hasattr(self._app, "set_stream_language"):
+            return web.json_response({"error": "not implemented"}, status=501)
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid JSON"}, status=400)
+        if not isinstance(data, dict) or not data:
+            return web.json_response({"error": "expected {role: language}"}, status=400)
+        for role, lang in data.items():
+            if role not in ("microphone", "meeting") or not lang or not isinstance(lang, str):
+                return web.json_response(
+                    {"error": f"invalid role or language: {role}"}, status=400
+                )
+        for role, lang in data.items():
+            self._app.set_stream_language(role, lang)
+        return web.Response(status=204)
+
+    async def _library_list_handler(self, request: web.Request) -> web.Response:
+        library = getattr(self._app, "library", None)
+        if library is None:
+            return web.json_response({"error": "not implemented"}, status=501)
+        items = await library.list()
+        return web.json_response(
+            [
+                {
+                    "id": item.id,
+                    "name": item.name,
+                    "domain": item.domain,
+                    "token_estimate": item.token_estimate,
+                    "updated_at": item.updated_at,
+                }
+                for item in items
+            ]
+        )
+
+    async def _library_upsert_handler(self, request: web.Request) -> web.Response:
+        library = getattr(self._app, "library", None)
+        if library is None:
+            return web.json_response({"error": "not implemented"}, status=501)
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid JSON"}, status=400)
+        name = data.get("name")
+        if not name:
+            return web.json_response({"error": "name required"}, status=400)
+        from app.drafts.library import LibraryTooLarge
+        from app.errors import InvariantViolation
+
+        try:
+            context_id = await library.upsert(
+                name, data.get("domain"), data.get("content_text", "")
+            )
+        except LibraryTooLarge as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+        except InvariantViolation as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+        return web.json_response({"id": context_id})
+
+    async def _library_delete_handler(self, request: web.Request) -> web.Response:
+        library = getattr(self._app, "library", None)
+        if library is None:
+            return web.json_response({"error": "not implemented"}, status=501)
+        from app.errors import InvariantViolation
+
+        context_id = request.match_info["context_id"]
+        try:
+            await library.delete(context_id)
+        except InvariantViolation as exc:
+            msg = str(exc)
+            status = 404 if "not_found" in msg else 409
+            return web.json_response({"error": msg}, status=status)
+        return web.Response(status=204)

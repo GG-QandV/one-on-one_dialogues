@@ -203,6 +203,24 @@ class Application:
         await self.ui_server.start()
         log.info("UI сервер запущен")
 
+    @property
+    def library(self) -> Any:
+        """Библиотека фактов (I1). Публичный доступ для UI-роутов (E7)."""
+        return self._library
+
+    def set_stream_language(self, role: str, source_language: str) -> None:
+        """Меняет язык потока для СЛЕДУЮЩЕЙ сессии (E7 настройки).
+
+        Применяется при следующем start_session: активную сессию не
+        перенастраивает — сегментер и STT для роли уже запущены с
+        зафиксированным на старте языком.
+        """
+        if role not in ("microphone", "meeting"):
+            raise SpeechLocalError(f"неизвестная роль потока: {role}")
+        if self._cfg.streams is None:
+            self._cfg.streams = {}
+        self._cfg.streams.setdefault(role, {})["source_language"] = source_language
+
     async def start_session(self, meeting_title: str | None = None) -> str:
         """Начать сессию: запись в БД, захват, сегментация, конвейер."""
         assert self.db and self.privacy and self.stt
