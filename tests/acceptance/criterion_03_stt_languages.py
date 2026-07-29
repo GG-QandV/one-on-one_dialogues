@@ -1,12 +1,16 @@
 """Критерий 3 (§21): распознавание EN/ES/RU/UA/PL через ggml-base.bin.
 
-Заблокировано в этом прогоне (не хватает окружения, не логики): нужны
-(а) собранный whisper-cli в PATH, (б) ggml-base.bin, (в) 5 эталонных WAV
-по языку с ожидаемым текстом — их предлагается хранить в
+Эталонные WAV по языку с ожидаемым текстом хранятся в
 tests/fixtures/acceptance_stt/<lang>.wav + .json (H2, ловушка: ссылка на
 внешний источник делает приёмку невоспроизводимой, значит только в репо).
-Ни того, ни другого, ни третьего сейчас нет. Проверка написана так, чтобы
-заработать сама, как только фикстуры появятся — руки трогать не нужно.
+
+Прогоняет WER на КАЖДОМ языке, для которого фикстура уже есть — не ждёт,
+пока появятся все пять. `passed=True` только когда все пять на месте и все
+в пределах порога; если каких-то ещё нет — `passed=None` (не хватает
+покрытия), но с честным отчётом по уже проверенным языкам, а не тишиной.
+Ошибка WER на уже доступном языке — это `passed=False` независимо от того,
+сколько языков ещё не хватает: это не блокировка окружением, а реальный
+провал.
 """
 
 from __future__ import annotations
@@ -20,38 +24,52 @@ from tests.acceptance.harness import CheckDef, CheckEnv, CheckKind, CheckResult
 FIXTURES_DIR = Path(__file__).resolve().parent.parent / "fixtures" / "acceptance_stt"
 LANGUAGES = ("en", "es", "ru", "uk", "pl")
 MODEL_PATH = Path("models/ggml-base.bin")
+TITLE = "распознавание EN/ES/RU/UA/PL (ggml-base.bin)"
 
 
-def _missing_prereqs() -> list[str]:
+def _base_prereqs_missing() -> list[str]:
     missing = []
     if shutil.which("whisper-cli") is None:
         missing.append("whisper-cli не найден в PATH")
     if not MODEL_PATH.exists():
         missing.append(f"модель не найдена: {MODEL_PATH}")
-    for lang in LANGUAGES:
-        wav = FIXTURES_DIR / f"{lang}.wav"
-        meta = FIXTURES_DIR / f"{lang}.json"
-        if not wav.exists() or not meta.exists():
-            missing.append(f"нет эталонной пары {lang}.wav/{lang}.json в {FIXTURES_DIR}")
     return missing
 
 
+def _available_languages() -> tuple[list[str], list[str]]:
+    available, missing = [], []
+    for lang in LANGUAGES:
+        wav = FIXTURES_DIR / f"{lang}.wav"
+        meta = FIXTURES_DIR / f"{lang}.json"
+        if wav.exists() and meta.exists():
+            available.append(lang)
+        else:
+            missing.append(lang)
+    return available, missing
+
+
 async def _run(env: CheckEnv) -> CheckResult:
-    missing = _missing_prereqs()
-    if missing:
+    base_missing = _base_prereqs_missing()
+    if base_missing:
         return CheckResult(
-            3,
-            "распознавание EN/ES/RU/UA/PL (ggml-base.bin)",
-            CheckKind.AUTO,
-            None,
-            "не выполнялось: " + "; ".join(missing),
+            3, TITLE, CheckKind.AUTO, None,
+            "не выполнялось: " + "; ".join(base_missing),
+        )
+
+    available, missing_langs = _available_languages()
+    if not available:
+        return CheckResult(
+            3, TITLE, CheckKind.AUTO, None,
+            "не выполнялось: нет ни одной эталонной пары "
+            f"<lang>.wav/<lang>.json в {FIXTURES_DIR}",
         )
 
     from app.stt.runner import WhisperConfig, WhisperRunner
 
     runner = WhisperRunner(WhisperConfig(model_path=MODEL_PATH))
-    failures = []
-    for lang in LANGUAGES:
+    passed_langs: list[str] = []
+    failures: list[str] = []
+    for lang in available:
         meta = json.loads((FIXTURES_DIR / f"{lang}.json").read_text(encoding="utf-8"))
         expected_text = meta["expected_text"]
         wer_threshold = meta["wer_threshold"]
@@ -62,23 +80,27 @@ async def _run(env: CheckEnv) -> CheckResult:
         wer = _word_error_rate(expected_text, recognized)
         if wer > wer_threshold:
             failures.append(f"{lang}: WER {wer:.2f} > порог {wer_threshold}")
+        else:
+            passed_langs.append(f"{lang}: WER {wer:.2f}")
 
     if failures:
+        detail = f"провалено: {'; '.join(failures)}"
+        if passed_langs:
+            detail += f"; пройдено: {'; '.join(passed_langs)}"
+        if missing_langs:
+            detail += f"; ещё нет фикстур: {', '.join(missing_langs)}"
+        return CheckResult(3, TITLE, CheckKind.AUTO, False, detail, evidence_path=env.tmp_dir)
+
+    if missing_langs:
         return CheckResult(
-            3,
-            "распознавание EN/ES/RU/UA/PL (ggml-base.bin)",
-            CheckKind.AUTO,
-            False,
-            "; ".join(failures),
-            evidence_path=env.tmp_dir,
+            3, TITLE, CheckKind.AUTO, None,
+            f"частично: пройдено {', '.join(passed_langs)}; "
+            f"не хватает фикстур для {', '.join(missing_langs)}",
         )
 
     return CheckResult(
-        3,
-        "распознавание EN/ES/RU/UA/PL (ggml-base.bin)",
-        CheckKind.AUTO,
-        True,
-        f"все {len(LANGUAGES)} языков в пределах порога WER",
+        3, TITLE, CheckKind.AUTO, True,
+        f"все {len(LANGUAGES)} языков в пределах порога WER: {'; '.join(passed_langs)}",
     )
 
 
@@ -97,6 +119,4 @@ def _word_error_rate(expected: str, actual: str) -> float:
     return dp[len(e)][len(a)] / max(1, len(e))
 
 
-CHECK = CheckDef(
-    number=3, title="распознавание EN/ES/RU/UA/PL (ggml-base.bin)", kind=CheckKind.AUTO, run=_run
-)
+CHECK = CheckDef(number=3, title=TITLE, kind=CheckKind.AUTO, run=_run)
