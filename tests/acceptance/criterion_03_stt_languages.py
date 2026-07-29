@@ -64,6 +64,7 @@ async def _run(env: CheckEnv) -> CheckResult:
             f"<lang>.wav/<lang>.json в {FIXTURES_DIR}",
         )
 
+    from app.stt.parser import parse_whisper_result
     from app.stt.runner import WhisperConfig, WhisperRunner
 
     runner = WhisperRunner(WhisperConfig(model_path=MODEL_PATH))
@@ -76,7 +77,10 @@ async def _run(env: CheckEnv) -> CheckResult:
         result = await runner.transcribe(
             FIXTURES_DIR / f"{lang}.wav", meta["audio_ms"], language=lang
         )
-        recognized = result.payload.get("text", "")
+        # whisper.cpp -oj кладёт текст в payload["transcription"][].text,
+        # а не в payload["text"] — переиспользуем штатный парсер (C6),
+        # а не свой разбор JSON.
+        recognized = parse_whisper_result(result.payload).text
         wer = _word_error_rate(expected_text, recognized)
         if wer > wer_threshold:
             failures.append(f"{lang}: WER {wer:.2f} > порог {wer_threshold}")
