@@ -14,3 +14,6 @@ __pycache__/
 # systemd env with keys
 systemd/*.env
 !systemd/*.env.example
+
+# acceptance stand reports (scripts/acceptance.py) — generated, not source
+/acceptance_report_*.md
