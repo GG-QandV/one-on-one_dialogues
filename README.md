@@ -87,4 +87,9 @@ mypy app/
 
 ## Лицензия
 
-MIT. См. [LICENSE](LICENSE).
+**Business Source License 1.1** (BSL 1.1). См. [LICENSE](LICENSE).
+
+- **Коммерческое использование** — по отдельной лицензии (обращайтесь к лицензиару).
+- **Личное/некоммерческое использование** — бесплатно (опенсорс-доступ к коду).
+
+Аналогичная лицензия используется в [agent-connector](https://github.com/GG-QandV/agent-connector).
