@@ -1,7 +1,18 @@
 # runtime data
 data/
 
+# generated output
+c0_out/
+models/
+speech_local.egg-info/
+test_speech2_out.txt
+speech-local.log
 
+# gitnexus index
+.gitnexus/
+
+# claude code
+.claude/skills/
 
 # env secrets
 .env
