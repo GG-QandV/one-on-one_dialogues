@@ -9,6 +9,7 @@ description = "Offline-first speech translation & draft assistant"
 requires-python = ">=3.12"
 dependencies = [
     "aiohttp",
+    "audioop-lts; python_version >= '3.13'",
 ]
 
 [project.optional-dependencies]

@@ -729,7 +729,7 @@ class Application:
                 role: s.snapshot() for role, s in self._segmenters.items()
             },
             "db_writer": self.db.stats.snapshot() if self.db else None,
-            "ui": self.ui_server.snapshot() if self.ui_server else None,
+            "ui": (lambda s: s.get("ui", s) if isinstance(s, dict) and "ui" in s else s)(self.ui_server.snapshot()) if self.ui_server else None,
             "draft_provider": self._draft_provider.snapshot() if self._draft_provider else None,
         }
 

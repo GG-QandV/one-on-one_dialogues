@@ -128,11 +128,13 @@ class UiServer:
                 log.exception("Failed to enqueue UI event for a client")
 
     def snapshot(self) -> dict[str, Any]:
-        """Return UI‑specific snapshot (client count etc.) — no app recursion."""
+        """Return UI‑specific snapshot — nested under 'ui' for compat, no app recursion."""
         return {
-            "client_count": self._client_count,
-            "sequence": self._sequence,
-            "lost_events": self._lost_events,
+            "ui": {
+                "client_count": self._client_count,
+                "sequence": self._sequence,
+                "lost_events": self._lost_events,
+            }
         }
 
     # ------------------------------------------------------------------ HTTP handlers
@@ -186,7 +188,7 @@ class UiServer:
         if hasattr(self._app, "snapshot"):
             snap = self._app.snapshot()
         else:
-            snap = {"ui": self.snapshot()}
+            snap = self.snapshot()
         return web.json_response(snap)
 
     async def _session_start_handler(self, request: web.Request) -> web.Response:
