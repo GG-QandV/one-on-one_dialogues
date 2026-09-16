@@ -751,7 +751,29 @@ async def _amain() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
     )
-    app = Application(AppConfig())
+    from pathlib import Path
+
+    try:
+        from app.config import load as _load_cfg
+        from app.privacy import PrivacyProfile as _PrivacyProfile
+
+        file_cfg = _load_cfg(Path("config.toml"))
+        _streams: dict[str, dict[str, object]] = {}
+        for _name, _sect in file_cfg.streams.items():
+            _streams[_name] = {
+                "source_language": _sect.source_language,
+                "target_language": _sect.target_language,
+                "node": _sect.pipewire_node,
+                "enabled": _sect.enabled,
+            }
+            if _sect.priority:
+                _streams[_name]["priority"] = _sect.priority
+        _profile = _PrivacyProfile.CONFIDENTIAL if file_cfg.privacy.default_profile == "confidential" else _PrivacyProfile.OPEN
+        _cfg = AppConfig(streams=_streams, default_profile=_profile)
+    except Exception as _e:
+        logging.getLogger(__name__).warning("config load failed, using defaults: %s", _e)
+        _cfg = AppConfig()
+    app = Application(_cfg)
     await app.start()
 
     stop = asyncio.Event()
