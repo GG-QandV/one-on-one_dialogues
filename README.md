@@ -53,6 +53,18 @@ API keys are entered via the UI (BYOK, kept in RAM for 60 minutes, never written
 | Claude           | ✅           | ❌      |
 | OpenAI Realtime  | ✅ (fast track) | ❌   |
 
+## PipeWire — Zoom / Google Meet / MS Teams
+
+Все три клиента подключаются **через PipeWire**, без внешних API. Детальные гайды (H6-совместимо):
+
+* **Zoom** — [docs/ZOOM_pipewire.md](docs/ZOOM_pipewire.md) (десктоп, изолированный узел, ловушка `вход в звонок → узел появляется`)
+* **Google Meet** — [docs/MEET_pipewire.md](docs/MEET_pipewire.md) (браузерный захват, `speech-local.monitor`)
+* **MS Teams** — [docs/TEAMS_pipewire.md](docs/TEAMS_pipewire.md) (Desktop vs Web, разные узлы, ловушка `вход в звонок → только тогда появляется узел`)
+
+Коротко (одинаково для всех): `bash scripts/create_pipewire_sources.sh` → `speech-local.monitor` → в `pavucontrol → Playback: <Chromium|teams> → speech-local monitor sink` → `config.toml: [streams.meeting] pipewire_node = "speech-local.monitor"` → проверка `wpctl status` + `http://127.0.0.1:8790` Diagnostics.
+
+> Браузерный Meet/Teams Web захватывают **весь звук браузера** (соседние вкладки) — это ограничение, не баг. Teams Desktop — изолированный узел `teams`.
+
 ## Scripts
 
 | Script                              | Purpose                                   |
@@ -91,5 +103,3 @@ mypy app/
 
 - **Commercial use** — under a separate license (contact the licensor).
 - **Personal/non-commercial use** — free (open-source access to the code).
-
-The same license is used in [agent-connector](https://github.com/GG-QandV/agent-connector).
