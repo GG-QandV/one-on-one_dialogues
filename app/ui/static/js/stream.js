@@ -259,10 +259,35 @@ class Stream {
     }
 
     _handleTranslated(data) {
-        const seg = this.segments.get(data.segment_id);
-        if (!seg) return;
+        let seg = this.segments.get(data.segment_id);
+        if (!seg) {
+            // FIX gap E3#3: translated может прийти до final — создаём placeholder,
+            // final потом дозаполнит rawText/tStartMs, перевод не потеряется.
+            seg = {
+                id: data.segment_id,
+                role: data.role || 'microphone',
+                tStartMs: data.t_start_ms || 0,
+                tEndMs: data.t_end_ms || 0,
+                rawText: null,
+                translation: null,
+                mode: null,
+                track: 'accurate',
+                superseded: false,
+                status: { stt: 'pending', translation: 'pending' },
+                draftText: '',
+                draftDelay: '?',
+                lang: '??',
+                langConflict: false,
+                privacyProfile: 'open',
+                targetLang: '??',
+                sttError: null,
+                translationError: null,
+            };
+            this.segments.set(data.segment_id, seg);
+        }
         seg.translation = data.translation;
         seg.mode = data.mode;
+        if (!seg.status) seg.status = { stt: 'pending', translation: 'pending' };
         seg.status.translation = 'done';
 
         // Вытеснение fast-track сегментов
