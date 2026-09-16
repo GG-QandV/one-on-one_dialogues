@@ -634,12 +634,7 @@ class Application:
         session_id = self._session_id
         log.info("остановка сессии %s", session_id)
 
-        # 1. Остановить UI сервер первым (спека E1 пункт 10)
-        if self.ui_server:
-            with contextlib.suppress(Exception):
-                await asyncio.wait_for(self.ui_server.stop(), timeout=2.0)
-            self.ui_server = None
-
+        # 1. UI сервер остаётся — дашборд не падает между сессиями
         # 2. Стоп intake: захват перестаёт отдавать аудио.
         if self.capture is not None:
             with contextlib.suppress(Exception):
@@ -653,10 +648,9 @@ class Application:
                 await asyncio.wait_for(task, timeout=2.0)
         self._pipelines.clear()
         self._segmenters.clear()
+        self.capture = None
 
-        # 4. STT дорабатывает очередь (все WAV уже записаны).
-        if self.stt is not None:
-            await self.stt.stop()
+        # 4. STT остаётся запущенным между сессиями — только дождаться очереди
 
         # 5. Облачные сессии: teardown зарегистрированных хуков.
         if self.privacy is not None and self.privacy.profile is PrivacyProfile.OPEN:
