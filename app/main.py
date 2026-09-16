@@ -239,7 +239,6 @@ class Application:
         )
 
         discovery = PipeWireDiscovery()
-        await discovery.refresh()
         self.capture = CaptureManager(discovery)
         session_dir = self._cfg.data_dir / "sessions" / session_id
 
