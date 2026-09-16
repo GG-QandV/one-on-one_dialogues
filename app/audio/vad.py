@@ -71,21 +71,21 @@ class VadConfig:
     """Все значения приходят из config.toml, секция [vad]."""
 
     #: Насколько кадр должен превышать фон, чтобы считаться речью.
-    onset_offset_db: float = 1.8
+    onset_offset_db: float = 3.5
     #: Порог выхода. Ниже порога входа — это и есть гистерезис.
-    release_offset_db: float = 0.5
+    release_offset_db: float = 1.5
     #: Абсолютный минимум: ниже этого уровня речи не бывает даже в тишине.
-    absolute_floor_db: float = -70.0
+    absolute_floor_db: float = -60.0
     #: Сколько подряд активных кадров нужно, чтобы признать начало речи.
-    onset_debounce_ms: int = 30
+    onset_debounce_ms: int = 80
     #: Сколько держать состояние SPEECH после последнего активного кадра.
-    hangover_ms: int = 80
+    hangover_ms: int = 150
     #: Постоянная времени адаптации фона вверх (шум вырос) — медленно.
-    noise_rise_per_s_db: float = 1.0
+    noise_rise_per_s_db: float = 2.0
     #: Вниз (шум упал) — быстро, иначе детектор надолго «оглохнет».
-    noise_fall_per_s_db: float = 48.0
+    noise_fall_per_s_db: float = 24.0
     #: Длина окна для стартовой калибровки фона.
-    calibration_ms: int = 300
+    calibration_ms: int = 400
 
     @property
     def onset_frames(self) -> int:
