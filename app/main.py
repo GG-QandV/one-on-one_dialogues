@@ -636,18 +636,21 @@ class Application:
 
         # 1. Остановить UI сервер первым (спека E1 пункт 10)
         if self.ui_server:
-            await self.ui_server.stop()
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(self.ui_server.stop(), timeout=2.0)
             self.ui_server = None
 
         # 2. Стоп intake: захват перестаёт отдавать аудио.
         if self.capture is not None:
             with contextlib.suppress(Exception):
-                await self.capture.stop_all()
+                await asyncio.wait_for(self.capture.stop_all(), timeout=3.0)
 
         # 3. Конвейеры дорабатывают буферы; flush хвоста внутри segmenter.run.
+        for task in list(self._pipelines):
+            task.cancel()
         for task in self._pipelines:
             with contextlib.suppress(asyncio.CancelledError, Exception):
-                await asyncio.wait_for(task, timeout=10.0)
+                await asyncio.wait_for(task, timeout=2.0)
         self._pipelines.clear()
         self._segmenters.clear()
 
