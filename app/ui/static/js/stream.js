@@ -223,7 +223,13 @@ class Stream {
     }
 
     _handleFinal(data) {
-        const existing = this.segments.get(data.utterance_id);
+        const byUtterance = this.segments.get(data.utterance_id);
+        const bySegment = this.segments.get(data.segment_id);
+        // Приоритет — записи по segment_id: там может лежать placeholder
+        // с уже пришедшим переводом (см. _handleTranslated). Раньше искали
+        // только по utterance_id, и при их несовпадении (fast→accurate)
+        // перевод перезатирался объектом с translation: null.
+        const existing = bySegment || byUtterance;
         const seg = existing || {
             id: data.segment_id,
             role: data.role,
@@ -249,12 +255,13 @@ class Stream {
         seg.tEndMs = data.t_end_ms;
         seg.rawText = data.raw_text;
         seg.track = 'accurate';
+        if (!seg.status) seg.status = { stt: 'done', translation: 'pending' };
         seg.status.stt = 'done';
         this.segments.set(data.segment_id, seg);
 
-        // Если был partial с тем же utterance_id — помечаем его superseded
-        if (existing && existing.id !== data.segment_id) {
-            existing.superseded = true;
+        // Fast-track партиал, живущий под другим ключом, вытеснён accurate-треком.
+        if (byUtterance && byUtterance !== seg && byUtterance.id !== data.segment_id) {
+            byUtterance.superseded = true;
         }
     }
 

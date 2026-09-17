@@ -11,10 +11,10 @@
  *    требует отображения задержки проверенного перевода.
  * 2. langNote не заполняется — E2 не передаёт note из LanguageDecision.
  *    Контракт E3 п. 6 требует подсказки при конфликте языков.
- * 3. segment.translated, пришедший до segment.final для того же segment_id,
- *    теряет данные перевода (E2._handleTranslated делает return при
- *    отсутствии сегмента в Map). E3 корректно не показывает перевод,
- *    но перевод не придёт повторно — E3 останется без финального текста.
+ * 3. (исправлено) segment.translated, пришедший до segment.final, больше не
+ *    теряется: E2._handleTranslated создаёт placeholder по segment_id, а
+ *    E2._handleFinal ищет запись и по utterance_id, и по segment_id.
+ *    Остаточный риск закрыт (см. BUGFIX_E2_translation_loss.md).
  */
 
 
