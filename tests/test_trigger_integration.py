@@ -18,9 +18,11 @@ from app.translation.offline import OfflineGate
 
 
 class FakeSttResult:
+    """Мини-двойник SttResult: _on_stt_result читает raw_text/model."""
+
     def __init__(self, text: str, model_used: str = "test"):
-        self.payload = {"transcription": [{"text": text}]}
-        self.model_used = model_used
+        self.raw_text = text
+        self.model = model_used
 
 
 @pytest.fixture

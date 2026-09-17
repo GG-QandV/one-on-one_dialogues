@@ -10,6 +10,18 @@ function createSettings({ container, stream, commands }) {
     keys: {},
     languages: { microphone: 'ru', meeting: 'en' },
     library: [],
+    stt: {
+      active: 'local_whisper',
+      choices: ['local_whisper', 'openai_api', 'custom_api'],
+      local: { model: '', fallback_model: '', device: 'auto' },
+      cloud: { endpoint: '', model: '', language_hint: '', timeout_s: 15, key_present: false, key_masked: null },
+    },
+  };
+
+  const STT_PROVIDER_LABELS = {
+    local_whisper: 'Локальный whisper.cpp',
+    openai_api: 'OpenAI Whisper API',
+    custom_api: 'Свой API (совместимый с OpenAI)',
   };
 
   function render() {
@@ -46,6 +58,47 @@ function createSettings({ container, stream, commands }) {
                    <button class="btn primary small" data-save="claude">Сохранить</button>
                  </div>`}
           </div>
+        </div>
+
+        <div class="settings-section">
+          <h3>Модель транскрипции</h3>
+          <div class="settings-field">
+            <label>Транскрибатор</label>
+            <select data-stt-active>
+              ${state.stt.choices.map((c) =>
+                `<option value="${c}" ${state.stt.active === c ? 'selected' : ''}>${STT_PROVIDER_LABELS[c] || c}</option>`
+              ).join('')}
+            </select>
+          </div>
+
+          <div class="settings-field" data-stt-local-fields style="${state.stt.active !== 'local_whisper' ? 'display:none' : ''}">
+            <label>Локальная модель (whisper.cpp)</label>
+            <input type="text" placeholder="ggml-base.bin" data-stt-local-model value="${escapeHtml(state.stt.local.model)}">
+            <input type="text" placeholder="ggml-tiny.bin (fallback)" data-stt-local-fallback value="${escapeHtml(state.stt.local.fallback_model)}" style="margin-top:4px">
+            <select data-stt-local-device style="margin-top:4px">
+              ${['auto', 'cpu', 'cuda'].map((d) =>
+                `<option value="${d}" ${state.stt.local.device === d ? 'selected' : ''}>${d}</option>`
+              ).join('')}
+            </select>
+          </div>
+
+          <div class="settings-field" data-stt-cloud-fields style="${state.stt.active !== 'local_whisper' ? '' : 'display:none'}">
+            <label>API ключ транскрибатора</label>
+            ${state.stt.cloud.key_present
+              ? `<div style="display:flex;gap:8px;align-items:center">
+                   <code>${escapeHtml(state.stt.cloud.key_masked || '…')}</code>
+                   <button class="btn small danger" data-revoke="stt_cloud">Отозвать</button>
+                 </div>`
+              : `<div style="display:flex;gap:8px">
+                   <input type="password" placeholder="sk-…" data-key="stt_cloud">
+                   <button class="btn primary small" data-save="stt_cloud">Сохранить</button>
+                 </div>`}
+            <input type="text" placeholder="Endpoint (пусто = дефолт провайдера)" data-stt-cloud-endpoint value="${escapeHtml(state.stt.cloud.endpoint)}" style="margin-top:4px">
+            <input type="text" placeholder="Модель, напр. whisper-1" data-stt-cloud-model value="${escapeHtml(state.stt.cloud.model)}" style="margin-top:4px">
+            <input type="text" placeholder="Язык (пусто = автоопределение)" data-stt-cloud-lang value="${escapeHtml(state.stt.cloud.language_hint)}" style="margin-top:4px">
+          </div>
+
+          <button class="btn primary small" data-save-stt style="margin-top:8px">Сохранить транскрибатор</button>
         </div>
 
         <div class="settings-section">
@@ -95,6 +148,10 @@ function createSettings({ container, stream, commands }) {
     container.querySelector('[data-save-lib]')?.addEventListener('click', saveLibrary);
     container.querySelector('[data-lang="microphone"]')?.addEventListener('change', (e) => setLang('microphone', e.target.value));
     container.querySelector('[data-lang="meeting"]')?.addEventListener('change', (e) => setLang('meeting', e.target.value));
+    container.querySelector('[data-stt-active]')?.addEventListener('change', (e) => setSttActive(e.target.value));
+    container.querySelector('[data-save-stt]')?.addEventListener('click', saveStt);
+    container.querySelector('[data-save="stt_cloud"]')?.addEventListener('click', () => saveKey('stt_cloud'));
+    container.querySelector('[data-revoke="stt_cloud"]')?.addEventListener('click', () => revokeKey('stt_cloud'));
     container.querySelectorAll('[data-delete-lib]').forEach(el => {
       el.addEventListener('click', () => deleteLibrary(el.dataset.deleteLib));
     });
@@ -107,6 +164,7 @@ function createSettings({ container, stream, commands }) {
       const res = await commands.putKey(provider, input.value);
       state.keys[provider] = res.masked || '…';
       input.value = '';
+      if (provider === 'stt_cloud') await loadStt();
       render();
     } catch (err) {
       console.error('key save failed', err);
@@ -117,9 +175,47 @@ function createSettings({ container, stream, commands }) {
     try {
       await commands.revokeKey(provider);
       delete state.keys[provider];
+      if (provider === 'stt_cloud') await loadStt();
       render();
     } catch (err) {
       console.error('key revoke failed', err);
+    }
+  }
+
+  function setSttActive(value) {
+    state.stt.active = value;
+    render(); // немедленно переключает видимость local/cloud, без запроса
+  }
+
+  async function saveStt() {
+    const payload = {
+      active: state.stt.active,
+      local: {
+        model: container.querySelector('[data-stt-local-model]')?.value || state.stt.local.model,
+        fallback_model: container.querySelector('[data-stt-local-fallback]')?.value || state.stt.local.fallback_model,
+        device: container.querySelector('[data-stt-local-device]')?.value || state.stt.local.device,
+      },
+      cloud: {
+        endpoint: container.querySelector('[data-stt-cloud-endpoint]')?.value || '',
+        model: container.querySelector('[data-stt-cloud-model]')?.value || '',
+        language_hint: container.querySelector('[data-stt-cloud-lang]')?.value || '',
+        timeout_s: state.stt.cloud.timeout_s,
+      },
+    };
+    try {
+      await commands.setStt(payload);
+      await loadStt();
+    } catch (err) {
+      console.error('stt save failed', err);
+    }
+  }
+
+  async function loadStt() {
+    try {
+      state.stt = await commands.getStt();
+      render();
+    } catch (err) {
+      console.error('stt load failed', err);
     }
   }
 
@@ -167,9 +263,10 @@ function createSettings({ container, stream, commands }) {
   }
 
   loadLibrary();
+  loadStt();
 
   return {
-    mount() { loadLibrary(); render(); },
+    mount() { loadLibrary(); loadStt(); render(); },
     unmount() { container.innerHTML = ''; },
   };
 }

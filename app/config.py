@@ -5,12 +5,11 @@ from __future__ import annotations
 import os
 import tomllib
 import warnings
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List
 
 from app.errors import SpeechLocalError
-
 
 # ------------------------------------------------------------------ sections
 
@@ -43,12 +42,31 @@ class DraftProviderSection:
 
 
 @dataclass(frozen=True, slots=True)
+class SttLocalSection:
+    model: str  # "ggml-base.bin" — имя/путь модели whisper.cpp
+    fallback_model: str  # "ggml-tiny.bin" — при нехватке памяти/OOM
+    device: str  # "cpu" | "cuda" | "auto"
+
+
+@dataclass(frozen=True, slots=True)
+class SttCloudSection:
+    endpoint: str  # "" = дефолтный endpoint провайдера
+    model: str  # "whisper-1", "gpt-4o-transcribe" и т.п.
+    language_hint: str  # "" = автоопределение на стороне API
+    timeout_s: float
+
+
+@dataclass(frozen=True, slots=True)
 class SttSection:
-    model: str
-    fallback_model: str
+    active: str  # "local_whisper" | "openai_api" | "custom_api"
     mode: str  # "file_per_segment"
     json_output: bool
     language_autodetect: bool
+    local: SttLocalSection
+    cloud: SttCloudSection
+
+
+STT_ACTIVE_CHOICES: List[str] = ["local_whisper", "openai_api", "custom_api"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,11 +194,17 @@ FLAT_DEFAULTS: Dict[str, Any] = {
     "provider.draft.active": "gemini",
     "provider.draft.model": "",
     "provider.draft.max_words": 120,
-    "stt.model": "ggml-base.bin",
-    "stt.fallback_model": "ggml-tiny.bin",
+    "stt.active": "local_whisper",
     "stt.mode": "file_per_segment",
     "stt.json_output": True,
     "stt.language_autodetect": True,
+    "stt.local.model": "ggml-base.bin",
+    "stt.local.fallback_model": "ggml-tiny.bin",
+    "stt.local.device": "auto",
+    "stt.cloud.endpoint": "",
+    "stt.cloud.model": "",
+    "stt.cloud.language_hint": "",
+    "stt.cloud.timeout_s": 15.0,
     "streams.microphone.source_language": "ru",
     "streams.microphone.target_language": "en",
     "streams.microphone.pipewire_node": "",
@@ -232,6 +256,11 @@ def _nested_from_flat(flat: Dict[str, Any]) -> Dict[str, Any]:
 def defaults() -> Dict[str, Any]:
     """Return default configuration as nested dict (for compatibility with tests)."""
     return _nested_from_flat(FLAT_DEFAULTS)
+
+
+def default_stt_section() -> SttSection:
+    """Собранная секция [stt] из дефолтов — для запуска без config.toml."""
+    return _dict_to_config(FLAT_DEFAULTS).stt
 
 
 def _flatten_dict(d: Dict[str, Any], parent_key: str = "", sep: str = ".") -> Dict[str, Any]:
@@ -326,6 +355,7 @@ def _validate_draft_provider(prov: Dict[str, Any]) -> List[str]:
 
 def _validate_stt(stt: Dict[str, Any]) -> List[str]:
     msgs: List[str] = []
+    msgs.extend(_validate_str_in(stt.get("active", ""), STT_ACTIVE_CHOICES, "stt.active"))
     msgs.extend(_validate_str_in(stt.get("mode", ""), ["file_per_segment"], "stt.mode"))
     json_out = stt.get("json_output")
     if not isinstance(json_out, bool):
@@ -333,6 +363,23 @@ def _validate_stt(stt: Dict[str, Any]) -> List[str]:
     lang_detect = stt.get("language_autodetect")
     if not isinstance(lang_detect, bool):
         msgs.append("stt.language_autodetect must be boolean")
+
+    local = stt.get("local", {})
+    if not isinstance(local, dict) or not local.get("model"):
+        msgs.append("stt.local.model must be non-empty string")
+    if not isinstance(local, dict) or local.get("device") not in ("cpu", "cuda", "auto"):
+        msgs.append("stt.local.device must be one of ['cpu', 'cuda', 'auto']")
+
+    active = stt.get("active", "local_whisper")
+    cloud = stt.get("cloud", {})
+    if active != "local_whisper":
+        # Модель обязательна для любого облачного провайдера — по аналогии
+        # с provider.realtime.model must be set when active != "none".
+        if not isinstance(cloud, dict) or not cloud.get("model"):
+            msgs.append(f"stt.cloud.model must be set when stt.active is '{active}'")
+        timeout = cloud.get("timeout_s", 0) if isinstance(cloud, dict) else 0
+        if not isinstance(timeout, (int, float)) or timeout <= 0:
+            msgs.append("stt.cloud.timeout_s must be positive")
     return msgs
 
 
@@ -535,12 +582,25 @@ def _dict_to_config(data: Dict[str, Any], source_path: Path = Path(".")) -> Conf
         realtime=provider_realtime,
         draft=provider_draft,
     )
+    stt_flat = get_section("stt")
+    stt_local_flat = get_section("stt", "local")
+    stt_cloud_flat = get_section("stt", "cloud")
     stt = SttSection(
-        model=get_section("stt").get("model", "ggml-base.bin"),
-        fallback_model=get_section("stt").get("fallback_model", "ggml-tiny.bin"),
-        mode=get_section("stt").get("mode", "file_per_segment"),
-        json_output=get_section("stt").get("json_output", True),
-        language_autodetect=get_section("stt").get("language_autodetect", True),
+        active=stt_flat.get("active", "local_whisper"),
+        mode=stt_flat.get("mode", "file_per_segment"),
+        json_output=stt_flat.get("json_output", True),
+        language_autodetect=stt_flat.get("language_autodetect", True),
+        local=SttLocalSection(
+            model=stt_local_flat.get("model", "ggml-base.bin"),
+            fallback_model=stt_local_flat.get("fallback_model", "ggml-tiny.bin"),
+            device=stt_local_flat.get("device", "auto"),
+        ),
+        cloud=SttCloudSection(
+            endpoint=stt_cloud_flat.get("endpoint", ""),
+            model=stt_cloud_flat.get("model", ""),
+            language_hint=stt_cloud_flat.get("language_hint", ""),
+            timeout_s=stt_cloud_flat.get("timeout_s", 15.0),
+        ),
     )
     # Build streams dict
     streams_raw = get_section("streams")
@@ -681,8 +741,15 @@ def to_toml(config: Config) -> str:
     # [provider.draft]
     _add_section("provider.draft", asdict(config.provider.draft))
 
-    # [stt]
-    _add_section("stt", asdict(config.stt))
+    # [stt] + вложенные [stt.local] / [stt.cloud]
+    _add_section("stt", {
+        "active": config.stt.active,
+        "mode": config.stt.mode,
+        "json_output": config.stt.json_output,
+        "language_autodetect": config.stt.language_autodetect,
+    })
+    _add_section("stt.local", asdict(config.stt.local))
+    _add_section("stt.cloud", asdict(config.stt.cloud))
 
     # [streams.microphone] and [streams.meeting]
     for stream_name, stream in config.streams.items():

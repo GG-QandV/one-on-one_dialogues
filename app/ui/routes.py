@@ -23,6 +23,8 @@ def setup_routes(app: web.Application, ui_server) -> None:
     app.router.add_post("/api/key", ui_server._key_put_handler)
     app.router.add_post("/api/key/revoke", ui_server._key_revoke_handler)
     app.router.add_post("/api/languages", ui_server._languages_handler)
+    app.router.add_get("/api/stt", ui_server._stt_get_handler)
+    app.router.add_post("/api/stt", ui_server._stt_put_handler)
     app.router.add_get("/api/library", ui_server._library_list_handler)
     app.router.add_post("/api/library", ui_server._library_upsert_handler)
     app.router.add_delete("/api/library/{context_id}", ui_server._library_delete_handler)

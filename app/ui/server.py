@@ -6,9 +6,11 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass
-from typing import Dict, Any, Optional, TYPE_CHECKING, Set
+from typing import TYPE_CHECKING, Any, Dict, Optional, Set
 
 from aiohttp import web
+
+from app.config import STT_ACTIVE_CHOICES
 
 if TYPE_CHECKING:
     from app.main import Application
@@ -410,6 +412,88 @@ class UiServer:
                 )
         for role, lang in data.items():
             self._app.set_stream_language(role, lang)
+        return web.Response(status=204)
+
+    # -------------------------------------------------------- STT provider (E7)
+
+    async def _stt_get_handler(self, request: web.Request) -> web.Response:
+        """GET /api/stt — активный провайдер, варианты, статус ключа (без ключа)."""
+        cfg = getattr(self._app, "stt_config", None)
+        if cfg is None:
+            return web.json_response({"error": "not implemented"}, status=501)
+        keystore = getattr(self._app, "keystore", None)
+        has_key = bool(keystore and keystore.has("stt_cloud"))
+        masked = keystore.masked("stt_cloud") if has_key else None
+        return web.json_response(
+            {
+                "active": cfg.active,
+                "choices": list(STT_ACTIVE_CHOICES),
+                "local": {
+                    "model": cfg.local.model,
+                    "fallback_model": cfg.local.fallback_model,
+                    "device": cfg.local.device,
+                },
+                "cloud": {
+                    "endpoint": cfg.cloud.endpoint,
+                    "model": cfg.cloud.model,
+                    "language_hint": cfg.cloud.language_hint,
+                    "timeout_s": cfg.cloud.timeout_s,
+                    "key_present": has_key,
+                    "key_masked": masked,
+                },
+            }
+        )
+
+    async def _stt_put_handler(self, request: web.Request) -> web.Response:
+        """POST /api/stt — смена активного STT-провайдера и его параметров.
+
+        Ключ уходит в KeyStore (`stt_cloud`), НЕ в config.toml. Остальное —
+        через `Application.update_config` (та же валидация, что при правке
+        файла), затем провайдер пересобирается без перезапуска процесса.
+        """
+        from app.errors import ProviderAuthError, SpeechLocalError
+
+        cfg = getattr(self._app, "stt_config", None)
+        if cfg is None or not hasattr(self._app, "update_config"):
+            return web.json_response({"error": "not implemented"}, status=501)
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid JSON"}, status=400)
+        if not isinstance(data, dict):
+            return web.json_response({"error": "expected JSON object"}, status=400)
+
+        active = data.get("active")
+        if active is not None and active not in STT_ACTIVE_CHOICES:
+            return web.json_response(
+                {"error": f"active must be one of {list(STT_ACTIVE_CHOICES)}"},
+                status=400,
+            )
+
+        api_key = data.get("api_key")
+        if api_key:
+            keystore = getattr(self._app, "keystore", None)
+            if keystore is None:
+                return web.json_response({"error": "keystore not available"}, status=501)
+            try:
+                keystore.put("stt_cloud", api_key)
+            except ProviderAuthError as exc:
+                return web.json_response({"error": str(exc)}, status=400)
+
+        stt_changes: dict = {}
+        if active is not None:
+            stt_changes["active"] = active
+        if isinstance(data.get("cloud"), dict):
+            stt_changes["cloud"] = data["cloud"]
+        if isinstance(data.get("local"), dict):
+            stt_changes["local"] = data["local"]
+
+        if stt_changes:
+            try:
+                new_cfg = await self._app.update_config({"stt": stt_changes})
+            except SpeechLocalError as exc:
+                return web.json_response({"error": str(exc)}, status=400)
+            await self._app.reload_stt_provider(new_cfg.stt)
         return web.Response(status=204)
 
     async def _library_list_handler(self, request: web.Request) -> web.Response:

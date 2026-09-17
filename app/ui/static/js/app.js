@@ -25,6 +25,11 @@
     setLanguages: (langs) =>
       fetch('/api/languages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(langs) })
         .then(r => r.ok ? undefined : Promise.reject()),
+    getStt: () =>
+      fetch('/api/stt').then(r => r.ok ? r.json() : Promise.reject(new Error(`stt get ${r.status}`))),
+    setStt: (payload) =>
+      fetch('/api/stt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+        .then(r => r.ok ? undefined : Promise.reject(new Error(`stt set ${r.status}`))),
     upsertLibrary: (name, domain, text) =>
       fetch('/api/library', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, domain, content_text: text }) })
         .then(r => r.json()),

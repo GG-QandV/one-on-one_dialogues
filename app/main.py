@@ -43,13 +43,14 @@ from app.audio.segmenter import (
     SegmentConfig,
     Segmenter,
 )
+from app.config import SttSection, default_stt_section
 from app.db import Database, DbConfig
 from app.errors import ProviderError, SpeechLocalError, StaleGenerationError
 from app.privacy import PrivacyController, PrivacyProfile
 from app.queue import JobQueue, JobType, QueueConfig
 from app.security.byok import KeyStore
-from app.stt.fallback import ModelSelector
-from app.stt.runner import WhisperConfig, WhisperRawResult, WhisperRunner
+from app.stt.base import SttResult
+from app.stt.factory import build_stt_provider
 from app.stt.scheduler import SchedulerConfig, SttScheduler
 from app.translation.base import TranslationMode, TranslationProvider, TranslationRequest
 from app.translation.context import ContextConfig
@@ -83,7 +84,6 @@ class AppConfig:
     """Собранная конфигурация. Наполняется из config.toml модулем config.py
     (задача B1, middle); здесь — только структура и дефолты для сборки."""
     data_dir: Path = Path("data")
-    whisper: WhisperConfig = WhisperConfig()
     scheduler: SchedulerConfig = SchedulerConfig()
     queue: QueueConfig = QueueConfig()
     default_profile: PrivacyProfile = PrivacyProfile.OPEN
@@ -91,6 +91,10 @@ class AppConfig:
     ui: UiConfig = UiConfig()  # UI server configuration
     provider: ProviderConfig = field(default_factory=ProviderConfig)
     context: ContextConfig = field(default_factory=ContextConfig)
+    #: Секция [stt] из config.toml. None = дефолты (тесты, запуск без файла).
+    stt: SttSection | None = None
+    #: Путь к config.toml для POST /api/stt (запись из дашборда).
+    config_path: Path = Path("config.toml")
 
     def stream_settings(self, role: str) -> dict[str, Any]:
         defaults = {
@@ -132,6 +136,9 @@ class Application:
         self._library: Any = None
         self._draft_translator: Any = None
         self._stream_languages: dict[str, str] = {}
+        self._stt_provider: Any = None
+        self._stt_cfg: SttSection | None = None
+        self._config_path: Path = config.config_path or Path("config.toml")
 
     # ================================================================ запуск
 
@@ -180,13 +187,15 @@ class Application:
         from app.drafts.translate import DraftTranslator
         self._draft_translator = DraftTranslator(self._provider, self._draft_guard)
 
-        # 4. STT: один runner, один selector, один scheduler на процесс.
-        runner = WhisperRunner(cfg.whisper)
-        selector = ModelSelector(
-            cfg.whisper.model_path, cfg.whisper.fallback_model_path
+        # 4. STT: провайдер по конфигу + один scheduler на процесс.
+        self._stt_cfg = cfg.stt if cfg.stt is not None else default_stt_section()
+        self._stt_provider = build_stt_provider(
+            self._stt_cfg,
+            privacy=self.privacy,
+            key_provider=lambda: self.keystore.get("stt_cloud"),  # type: ignore[union-attr]
         )
         self.stt = SttScheduler(
-            runner, selector,
+            self._stt_provider,
             on_result=self._on_stt_result,
             on_error=self._on_stt_error,
             config=cfg.scheduler,
@@ -220,6 +229,61 @@ class Application:
         if self._cfg.streams is None:
             self._cfg.streams = {}
         self._cfg.streams.setdefault(role, {})["source_language"] = source_language
+
+    # ------------------------------------------------------ настройки STT (E7)
+
+    @property
+    def config(self) -> AppConfig:
+        """Собранная конфигурация — для UI-роутов (GET /api/stt)."""
+        return self._cfg
+
+    @property
+    def stt_config(self) -> SttSection | None:
+        return self._stt_cfg
+
+    @property
+    def stt_provider(self) -> Any:
+        """Активный STT-провайдер (для тестов hot-swap и диагностики)."""
+        return self._stt_provider
+
+    async def update_config(self, changes: dict[str, Any]) -> Any:
+        """Применить изменения к config.toml (атомарная запись + валидация).
+
+        Ручная правка файла и дашборд идут одним путём данных: оба ведут в
+        один `Config`, второй источник истины не заводится.
+        """
+        from app.config import update as _update
+
+        new_cfg = _update(self._config_path, changes)
+        self._stt_cfg = new_cfg.stt
+        return new_cfg
+
+    async def reload_stt_provider(self, stt_cfg: SttSection | None = None) -> None:
+        """Пересобрать активный STT-провайдер без перезапуска процесса.
+
+        Job'ы типа 'stt', созданные до смены, при retry пойдут через новый
+        провайдер — это ожидаемо: провайдер stateless per-request.
+        """
+        cfg = stt_cfg if stt_cfg is not None else self._stt_cfg
+        if cfg is None:
+            return
+        self._stt_cfg = cfg
+        key_provider = None
+        if self.keystore is not None:
+            def key_provider() -> str:  # type: ignore[misc]
+                assert self.keystore is not None
+                return self.keystore.get("stt_cloud")
+
+        new_provider = build_stt_provider(
+            cfg, privacy=self.privacy, key_provider=key_provider
+        )
+        old = self._stt_provider
+        self._stt_provider = new_provider
+        if self.stt is not None:
+            old = self.stt.set_provider(new_provider)
+        if old is not None:
+            with contextlib.suppress(Exception):
+                await old.close()
 
     async def start_session(self, meeting_title: str | None = None) -> str:
         """Начать сессию: запись в БД, захват, сегментация, конвейер."""
@@ -341,25 +405,19 @@ class Application:
 
     # ---------------------------------------------------------- результаты STT
 
-    async def _on_stt_result(
-        self, seg: FinalSegment, raw: WhisperRawResult
-    ) -> None:
-        """Минимальная запись результата.
+    async def _on_stt_result(self, seg: FinalSegment, result: SttResult) -> None:
+        """Записать результат STT (текст + модель), запустить цепочку задач.
 
-        Полный разбор JSON (текст, язык, avg_logprob) — parser.py, задача C6
-        (middle). Здесь пишется сырой текст, чтобы вертикальный срез был
-        замкнут до появления парсера; после C6 эта функция делегирует ему.
+        Разбор JSON whisper — в провайдере (parser.py, задача C6); сюда
+        приходит уже нормализованный `SttResult`.
         """
         assert self.db and self.supersede and self.jobs
-        text = " ".join(
-            s.get("text", "").strip()
-            for s in raw.payload.get("transcription", [])
-        ).strip()
+        text = (result.raw_text or "").strip()
 
         def _tx(conn: sqlite3.Connection) -> None:
             conn.execute(
                 "UPDATE segments SET raw_text = ?, stt_model = ? WHERE id = ?",
-                (text or None, raw.model_used, seg.id),
+                (text or None, result.model, seg.id),
             )
 
         await self.db.write(_tx)
@@ -383,6 +441,14 @@ class Application:
 
     async def _on_stt_error(self, seg: FinalSegment, exc: BaseException) -> None:
         assert self.jobs
+        if isinstance(exc, NotImplementedError):
+            # Постоянная ошибка (например, облачный STT API ещё не реализован):
+            # повтор не поможет и лишь зациклит очередь.
+            log.error(
+                "STT сегмента %s: постоянная ошибка, повтор не ставится: %s",
+                seg.id, exc,
+            )
+            return
         await self.jobs.enqueue(
             JobType.STT, segment_id=seg.id,
             payload={"audio_path": str(seg.audio_path),
@@ -766,10 +832,15 @@ async def _amain() -> None:
             if _sect.priority:
                 _streams[_name]["priority"] = _sect.priority
         _profile = _PrivacyProfile.CONFIDENTIAL if file_cfg.privacy.default_profile == "confidential" else _PrivacyProfile.OPEN
-        _cfg = AppConfig(streams=_streams, default_profile=_profile)
+        _cfg = AppConfig(
+            streams=_streams,
+            default_profile=_profile,
+            stt=file_cfg.stt,
+            config_path=Path("config.toml"),
+        )
     except Exception as _e:
         logging.getLogger(__name__).warning("config load failed, using defaults: %s", _e)
-        _cfg = AppConfig()
+        _cfg = AppConfig(config_path=Path("config.toml"))
     app = Application(_cfg)
     await app.start()
 

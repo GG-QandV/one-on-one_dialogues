@@ -31,15 +31,11 @@ from __future__ import annotations
 import asyncio
 import heapq
 import logging
-import time
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from app.audio.segmenter import FinalSegment
-from app.errors import SttError
-from app.stt.fallback import ModelSelector
-from app.stt.runner import WhisperRawResult, WhisperRunner
+from app.stt.base import SttProvider, SttRequest, SttResult
 
 log = logging.getLogger(__name__)
 
@@ -57,8 +53,8 @@ class SchedulerConfig:
     language_by_role: dict[str, str] = field(default_factory=dict)
 
 
-#: Колбэк готового результата: (сегмент, сырой результат whisper).
-ResultSink = Callable[[FinalSegment, WhisperRawResult], Awaitable[None]]
+#: Колбэк готового результата: (сегмент, результат провайдера).
+ResultSink = Callable[[FinalSegment, SttResult], Awaitable[None]]
 #: Колбэк ошибки: (сегмент, исключение).
 ErrorSink = Callable[[FinalSegment, BaseException], Awaitable[None]]
 
@@ -76,14 +72,12 @@ class SttScheduler:
 
     def __init__(
         self,
-        runner: WhisperRunner,
-        selector: ModelSelector,
+        provider: SttProvider,
         on_result: ResultSink,
         on_error: ErrorSink,
         config: SchedulerConfig | None = None,
     ) -> None:
-        self._runner = runner
-        self._selector = selector
+        self._provider = provider
         self._on_result = on_result
         self._on_error = on_error
         self._cfg = config or SchedulerConfig()
@@ -191,14 +185,14 @@ class SttScheduler:
 
     async def _process(self, segment: FinalSegment) -> None:
         language = self._cfg.language_by_role.get(segment.role, "auto")
-        model_path = self._selector.current_path
+        req = SttRequest(
+            audio_path=segment.audio_path,
+            segment_id=segment.id,
+            language_hint=None if language == "auto" else language,
+            audio_ms=segment.duration_ms,
+        )
         try:
-            result = await self._runner.transcribe(
-                segment.audio_path,
-                segment.duration_ms,
-                model_path=model_path,
-                language=language,
-            )
+            result = await self._provider.transcribe(req)
         except BaseException as exc:  # noqa: BLE001 — воркер один, падать нельзя
             self.errors += 1
             log.error("STT сегмента %s не удался: %s", segment.id, exc)
@@ -209,18 +203,28 @@ class SttScheduler:
             return
 
         self.processed += 1
-        self._last_rtf = result.realtime_factor
-        # Наблюдение питает fallback: следующий вызов может пойти на tiny.
-        self._selector.observe(result.realtime_factor)
         try:
             await self._on_result(segment, result)
         except Exception:  # noqa: BLE001
             log.exception("обработчик результата STT упал (сегмент %s)", segment.id)
 
+    # ------------------------------------------------------------- провайдер
+
+    def set_provider(self, provider: SttProvider) -> SttProvider:
+        """Заменить активный провайдер. Возвращает прежний для закрытия.
+
+        Вызывается из event loop между вызовами `_process` — воркер один,
+        гонки за `self._provider` нет.
+        """
+        old = self._provider
+        self._provider = provider
+        return old
+
     # ------------------------------------------------------------ наблюдаемость
 
     def snapshot(self) -> dict[str, Any]:
         """Диагностический экран (E5) и каскад деградации (F2)."""
+        provider_snap = self._provider.snapshot()
         return {
             "backlog_ms": self.backlog_ms,
             "backlogged": self.backlogged,
@@ -229,6 +233,7 @@ class SttScheduler:
             "processed": self.processed,
             "rejected": self.rejected,
             "errors": self.errors,
-            "last_rtf": round(self._last_rtf, 2) if self._last_rtf else None,
-            "model": self._selector.snapshot(),
+            "last_rtf": provider_snap.get("last_rtf"),
+            "provider": provider_snap,
+            "model": provider_snap,
         }
