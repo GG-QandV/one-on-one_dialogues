@@ -434,8 +434,8 @@ class Application:
         def _tx(conn: sqlite3.Connection) -> None:
             conn.execute(
                 "UPDATE segments SET raw_text = ?, stt_model = ?, "
-                "stt_provider_used = ? WHERE id = ?",
-                (text or None, result.model, result.provider, seg.id),
+                "stt_provider_used = ?, stt_entry_used = ? WHERE id = ?",
+                (text or None, result.model, result.provider, result.entry, seg.id),
             )
 
         await self.db.write(_tx)

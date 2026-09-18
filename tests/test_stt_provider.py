@@ -80,6 +80,7 @@ async def test_falls_to_next_entry_in_same_call():
 
     result = await chain.transcribe(_req(), fence=None)
     assert result.provider == "cloud_b"
+    assert result.entry == "cloud_b"  # fake без label → имя провайдера
     assert a.calls == 1 and b.calls == 1 and local.calls == 0
 
 

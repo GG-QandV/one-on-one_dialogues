@@ -35,6 +35,7 @@ class CloudSttProvider(BaseSttProvider):
         endpoint: str,
         model: str,
         timeout_s: float = 15.0,
+        key_name: str = "",
         privacy: Optional[PrivacyController] = None,
         key_provider: Optional[Callable[[], str]] = None,
     ) -> None:
@@ -43,6 +44,12 @@ class CloudSttProvider(BaseSttProvider):
         )
         self._endpoint = endpoint
         self._model = model
+        self._key_name = key_name
+
+    @property
+    def label(self) -> str:
+        """Звено с учётом ключа: `custom_api:groq_0` — отличает ключи одного API."""
+        return f"{self.name}:{self._key_name}" if self._key_name else self.name
 
     # ------------------------------------------------------------- HTTP
 
@@ -102,6 +109,7 @@ class CloudSttProvider(BaseSttProvider):
     def snapshot(self) -> dict[str, Any]:
         return {
             "provider": self.name,
+            "entry": self.label,
             "model": self._model,
             "endpoint": self._endpoint,
             "timeout_s": self._timeout_s,

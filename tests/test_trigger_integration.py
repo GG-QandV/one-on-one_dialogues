@@ -24,6 +24,7 @@ class FakeSttResult:
         self.raw_text = text
         self.model = model_used
         self.provider = "test"
+        self.entry = "test:fake"
 
 
 @pytest.fixture

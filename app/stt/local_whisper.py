@@ -88,6 +88,11 @@ class LocalWhisperProvider:
         # Runner не держит соединений — закрывать нечего.
         return None
 
+    @property
+    def label(self) -> str:
+        """Идентификатор звена для диагностики (у local — имя провайдера)."""
+        return self.name
+
     def snapshot(self) -> dict[str, Any]:
         snap = self._selector.snapshot()
         snap["provider"] = self.name

@@ -47,6 +47,9 @@ class SttResult:
     model: Optional[str] = None
     #: Имя звена, фактически распознавшего сегмент (для stt_provider_used).
     provider: Optional[str] = None
+    #: Конкретное звено с учётом ключа, напр. "custom_api:groq_0"
+    #: (для stt_entry_used — отличает ключи одного провайдера).
+    entry: Optional[str] = None
 
 
 @runtime_checkable

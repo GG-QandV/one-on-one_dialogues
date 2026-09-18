@@ -100,6 +100,7 @@ def _build_entry_provider(
         endpoint=entry.endpoint,
         model=entry.model,
         timeout_s=entry.timeout_s,
+        key_name=key_name,
         privacy=privacy,
         key_provider=key_provider,
     )

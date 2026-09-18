@@ -193,5 +193,6 @@ def test_factory_key_provider_falls_back_to_file(tmp_path: Path):
     store = KeyStore()
     chain = build_stt_chain(section, keystore=store, secrets_dir=tmp_path)
     provider = chain._entries[0].provider  # noqa: SLF001
+    assert provider.label == "custom_api:groq_0"
     assert provider._key_provider() == "sk-from-file"  # noqa: SLF001
     assert store.has("groq_0")

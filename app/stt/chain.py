@@ -86,7 +86,11 @@ class SttFailoverChain:
                 continue  # звено на cooldown — пропускаем без попытки
             try:
                 result = await entry.provider.transcribe(req, fence=fence)
-                return dataclasses.replace(result, provider=entry.provider.name)
+                return dataclasses.replace(
+                    result,
+                    provider=entry.provider.name,
+                    entry=getattr(entry.provider, "label", entry.provider.name),
+                )
             except _COOLDOWN_ERRORS as exc:
                 last_exc = exc
                 if entry.cooldown_s > 0:
@@ -117,6 +121,7 @@ class SttFailoverChain:
             "entries": [
                 {
                     "provider": e.provider.name,
+                    "entry": getattr(e.provider, "label", e.provider.name),
                     "cooldown_s": e.cooldown_s,
                     "blocked": e.blocked_until > now,
                 }
