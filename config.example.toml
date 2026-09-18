@@ -23,11 +23,30 @@ model = ""
 max_words = 120
 
 [stt]
-model = "ggml-base.bin"
-fallback_model = "ggml-tiny.bin"
 mode = "file_per_segment"
 json_output = true
 language_autodetect = true
+
+# Цепочка фолбэков STT. Порядок = порядок попыток; последнее звено —
+# обязательно local_whisper (инвариант §8.7). Ключи облачных звеньев
+# читаются из файлов ~/.secrets/<key_name> и НЕ пишутся сюда.
+#
+# Пример с Groq (OpenAI-совместимый endpoint), модели:
+#   whisper-large-v3-turbo (быстрее/дешевле), whisper-large-v3 (точнее).
+[[stt.chain]]
+provider = "custom_api"
+model = "whisper-large-v3-turbo"
+endpoint = "https://api.groq.com/openai/v1/audio/transcriptions"
+key_name = "groq_0"
+timeout_s = 15.0
+cooldown_s = 60.0
+
+[[stt.chain]]
+provider = "local_whisper"
+model = "ggml-base.bin"
+fallback_model = "ggml-tiny.bin"
+device = "auto"
+cooldown_s = 0.0
 
 [streams]
 

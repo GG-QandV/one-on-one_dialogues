@@ -421,6 +421,9 @@ class UiServer:
         cfg = getattr(self._app, "stt_config", None)
         if cfg is None:
             return web.json_response({"error": "not implemented"}, status=501)
+        refresh = getattr(self._app, "refresh_stt_keys", None)
+        if callable(refresh):
+            refresh()  # файловые ключи ~/.secrets → KeyStore для статуса
         keystore = getattr(self._app, "keystore", None)
 
         chain = []

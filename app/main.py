@@ -49,6 +49,7 @@ from app.errors import ProviderError, SpeechLocalError, StaleGenerationError
 from app.privacy import PrivacyController, PrivacyProfile
 from app.queue import JobQueue, JobType, QueueConfig
 from app.security.byok import KeyStore
+from app.security.keyfiles import load_key_file
 from app.stt.base import SttResult
 from app.stt.chain import SttChainExhausted
 from app.stt.factory import build_stt_chain
@@ -96,6 +97,8 @@ class AppConfig:
     stt: SttSection | None = None
     #: Путь к config.toml для POST /api/stt (запись из дашборда).
     config_path: Path = Path("config.toml")
+    #: Каталог локальных секретов для STT-ключей (/<key_name>), не TOML.
+    secrets_dir: Path = Path.home() / ".secrets"
 
     def stream_settings(self, role: str) -> dict[str, Any]:
         defaults = {
@@ -190,10 +193,12 @@ class Application:
 
         # 4. STT: цепочка провайдеров по конфигу + один scheduler на процесс.
         self._stt_cfg = cfg.stt if cfg.stt is not None else default_stt_section()
+        self.refresh_stt_keys()
         self._stt_provider = build_stt_chain(
             self._stt_cfg,
             privacy=self.privacy,
             keystore=self.keystore,
+            secrets_dir=self._cfg.secrets_dir,
         )
         self.stt = SttScheduler(
             self._stt_provider,
@@ -247,6 +252,19 @@ class Application:
         """Активный STT-провайдер (для тестов hot-swap и диагностики)."""
         return self._stt_provider
 
+    def refresh_stt_keys(self) -> None:
+        """Подтянуть файловые ключи (~/.secrets/<key_name>) в KeyStore.
+
+        Дашборд показывает `key_present` из KeyStore; при старте и смене
+        цепочки ключи перечитываются с диска. Рантайм дополнительно
+        подхватывает файл при истечении TTL (см. factory.key_provider).
+        """
+        if self.keystore is None or self._stt_cfg is None:
+            return
+        for entry in self._stt_cfg.chain:
+            if entry.provider != "local_whisper" and entry.key_name:
+                load_key_file(self.keystore, entry.key_name, self._cfg.secrets_dir)
+
     async def update_config(self, changes: dict[str, Any]) -> Any:
         """Применить изменения к config.toml (атомарная запись + валидация).
 
@@ -269,8 +287,12 @@ class Application:
         if cfg is None:
             return
         self._stt_cfg = cfg
+        self.refresh_stt_keys()
         new_provider = build_stt_chain(
-            cfg, privacy=self.privacy, keystore=self.keystore
+            cfg,
+            privacy=self.privacy,
+            keystore=self.keystore,
+            secrets_dir=self._cfg.secrets_dir,
         )
         old = self._stt_provider
         self._stt_provider = new_provider

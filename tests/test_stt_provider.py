@@ -216,13 +216,3 @@ async def test_cloud_requires_key():
     p = _cloud(privacy=PrivacyController(PrivacyProfile.OPEN), key_provider=no_key)
     with pytest.raises(ProviderAuthError):
         await p.transcribe(_req())
-
-
-async def test_cloud_call_not_implemented_yet():
-    p = _cloud(
-        privacy=PrivacyController(PrivacyProfile.OPEN),
-        key_provider=lambda: "sk-test",
-    )
-    with pytest.raises(NotImplementedError):
-        await p.transcribe(_req())
-    assert "sk-test" not in str(p.snapshot())

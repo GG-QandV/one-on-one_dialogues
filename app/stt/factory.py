@@ -13,6 +13,7 @@ from app.config import SttChainEntry, SttSection
 from app.errors import ProviderAuthError
 from app.privacy import PrivacyController
 from app.security.byok import KeyStore
+from app.security.keyfiles import DEFAULT_SECRETS_DIR, load_key_file
 from app.stt.chain import ChainEntry, SttFailoverChain
 from app.stt.cloud_api import CloudSttProvider
 from app.stt.local_whisper import LocalWhisperProvider
@@ -38,6 +39,7 @@ def build_stt_chain(
     binary: Path = DEFAULT_BINARY,
     threads: int = 4,
     models_dir: Path = DEFAULT_MODELS_DIR,
+    secrets_dir: Path = DEFAULT_SECRETS_DIR,
 ) -> SttFailoverChain:
     """Построить цепочку фолбэков по секции `[stt]`."""
     entries = [
@@ -49,6 +51,7 @@ def build_stt_chain(
                 binary=binary,
                 threads=threads,
                 models_dir=models_dir,
+                secrets_dir=secrets_dir,
             ),
             cooldown_s=e.cooldown_s,
         )
@@ -65,6 +68,7 @@ def _build_entry_provider(
     binary: Path,
     threads: int,
     models_dir: Path,
+    secrets_dir: Path,
 ):
     if entry.provider == "local_whisper":
         return LocalWhisperProvider(
@@ -82,7 +86,14 @@ def _build_entry_provider(
     def key_provider() -> str:
         if keystore is None:
             raise ProviderAuthError(f"keystore unavailable for key '{key_name}'")
-        return keystore.get(key_name)
+        try:
+            return keystore.get(key_name)
+        except ProviderAuthError:
+            # Ключ из файла ~/.secrets/<key_name>: TTL KeyStore (60 мин) истёк
+            # или ключ ещё не загружен — перечитываем файл и пробуем снова.
+            if load_key_file(keystore, key_name, secrets_dir):
+                return keystore.get(key_name)
+            raise
 
     return CloudSttProvider(
         active=entry.provider,
