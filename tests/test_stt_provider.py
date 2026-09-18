@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -26,7 +27,7 @@ from app.privacy import PrivacyController, PrivacyProfile
 from app.stt.base import SttRequest, SttResult
 from app.stt.chain import ChainEntry, SttChainExhausted, SttFailoverChain
 from app.stt.cloud_api import CloudSttProvider
-from app.stt.factory import build_stt_chain, resolve_model_path
+from app.stt.factory import build_local_provider, build_stt_cloud_chain, resolve_model_path
 
 
 def _req() -> SttRequest:
@@ -36,14 +37,20 @@ def _req() -> SttRequest:
 class FakeProvider:
     """Управляемый двойник SttProvider."""
 
-    def __init__(self, name: str, *, result: SttResult | None = None, exc=None):
+    def __init__(
+        self, name: str, *,
+        result: SttResult | None = None, exc=None, delay_s: float = 0.0,
+    ):
         self.name = name
         self._result = result or SttResult(raw_text=f"via {name}", model="m")
         self._exc = exc
+        self._delay_s = delay_s
         self.calls = 0
 
     async def transcribe(self, req, *, fence=None) -> SttResult:
         self.calls += 1
+        if self._delay_s:
+            await asyncio.sleep(self._delay_s)
         if self._exc is not None:
             raise self._exc
         return self._result
@@ -135,10 +142,34 @@ async def test_all_cloud_blocked_goes_local_without_delay():
     assert local.calls == 1
 
 
-async def test_local_entry_must_have_no_cooldown():
+async def test_sequential_chain_falls_through_to_next_entry():
+    """Строгий (не hedged) обход: упавшее звено → следующее в том же вызове."""
+    a = FakeProvider("cloud_a", exc=ProviderAuthError("401"))
     local = FakeProvider("local_whisper")
-    with pytest.raises(ValueError):
-        SttFailoverChain([ChainEntry(local, cooldown_s=60)])
+    chain = SttFailoverChain([ChainEntry(a, 60), ChainEntry(local, 0)])
+    result = await chain.transcribe(_req(), fence=None)
+    assert result.provider == "local_whisper"
+
+
+async def test_hedged_chain_starts_next_when_first_silent():
+    """B: если первое звено молчит > hedge_delay, стартует второе."""
+    slow = FakeProvider("slow", delay_s=0.3)
+    fast = FakeProvider("fast")
+    chain = SttFailoverChain(
+        [ChainEntry(slow, 60), ChainEntry(fast, 60)],
+        hedge_delay_s=0.05,
+        deadline_s=2.0,
+    )
+    result = await chain.transcribe(_req(), fence=None)
+    assert result.provider == "fast"
+    assert slow.calls == 1
+
+
+async def test_hedged_chain_none_available_raises():
+    a = FakeProvider("a", exc=ProviderUnavailable("503"))
+    chain = SttFailoverChain([ChainEntry(a, 60)], hedge_delay_s=0.01, deadline_s=1.0)
+    with pytest.raises(SttChainExhausted):
+        await chain.transcribe(_req(), fence=None)
 
 
 async def test_exhausted_when_all_entries_fail():
@@ -160,7 +191,7 @@ async def test_not_implemented_cloud_falls_back_to_local():
 
 # ----------------------------------------------------------------- factory
 
-def test_build_stt_chain_from_section():
+def test_build_cloud_chain_and_local_provider():
     stt = SttSection(
         mode="file_per_segment",
         json_output=True,
@@ -173,16 +204,17 @@ def test_build_stt_chain_from_section():
             ),
         ),
     )
-    chain = build_stt_chain(stt)
-    names = [e.provider.name for e in chain._entries]  # noqa: SLF001
-    assert names == ["openai_api", "local_whisper"]
-    assert chain._entries[-1].cooldown_s == 0  # noqa: SLF001
+    cloud = build_stt_cloud_chain(stt)
+    assert cloud is not None
+    assert [e.provider.name for e in cloud._entries] == ["openai_api"]  # noqa: SLF001
+    local = build_local_provider(stt)
+    assert local.name == "local_whisper"
 
 
-def test_default_chain_is_local_only():
-    chain = build_stt_chain(default_stt_section())
-    names = [e.provider.name for e in chain._entries]  # noqa: SLF001
-    assert names == ["local_whisper"]
+def test_default_chain_has_no_cloud_and_local_provider():
+    stt = default_stt_section()
+    assert build_stt_cloud_chain(stt) is None
+    assert build_local_provider(stt).name == "local_whisper"
 
 
 def test_resolve_model_path():

@@ -75,13 +75,18 @@ class LocalWhisperProvider:
             # Пустой/неполный ответ — не роняем сегмент: raw_text остаётся
             # пустым, дальше он просто не пойдёт в перевод (как раньше).
             log.warning("whisper вернул неполный JSON для %s", req.segment_id)
-            return SttResult(raw_text="", model=raw.model_used)
+            return SttResult(
+                raw_text="", model=raw.model_used,
+                provider=self.name, entry=self.label,
+            )
 
         return SttResult(
             raw_text=transcript.text,
             detected_language=transcript.detected_language,
             confidence=transcript.confidence,
             model=raw.model_used,
+            provider=self.name,
+            entry=self.label,
         )
 
     async def close(self) -> None:

@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import logging
 import time
@@ -54,6 +55,8 @@ class ChainEntry:
     provider: SttProvider
     cooldown_s: float
     blocked_until: float = 0.0
+    #: Звено уже в полёте (защита от дублей при hedging).
+    inflight: bool = False
 
 
 class SttFailoverChain:
@@ -66,17 +69,42 @@ class SttFailoverChain:
         entries: Sequence[ChainEntry],
         *,
         clock: Callable[[], float] = time.monotonic,
+        hedge_delay_s: float | None = None,
+        deadline_s: float | None = None,
     ) -> None:
         if not entries:
             raise ValueError("chain must not be empty")
-        if entries[-1].cooldown_s != 0.0:
-            raise ValueError(
-                "last entry (local_whisper) must have no cooldown (invariant §8.7)"
-            )
         self._entries = list(entries)
         self._clock = clock
+        #: None — строго последовательный обход (local/тесты).
+        #: Число — hedging: старт следующего звена, если предыдущее молчит.
+        self._hedge_delay_s = hedge_delay_s
+        self._deadline_s = deadline_s
 
     async def transcribe(
+        self, req: SttRequest, *, fence: Optional[Fence] = None
+    ) -> SttResult:
+        if self._hedge_delay_s is None:
+            return await self._sequential(req, fence=fence)
+        return await self._hedged(req, fence=fence)
+
+    def _finish(self, entry: ChainEntry, result: SttResult) -> SttResult:
+        return dataclasses.replace(
+            result,
+            provider=entry.provider.name,
+            entry=getattr(entry.provider, "label", entry.provider.name),
+        )
+
+    async def _attempt(
+        self, entry: ChainEntry, req: SttRequest, fence: Optional[Fence]
+    ) -> SttResult:
+        entry.inflight = True
+        try:
+            return await entry.provider.transcribe(req, fence=fence)
+        finally:
+            entry.inflight = False
+
+    async def _sequential(
         self, req: SttRequest, *, fence: Optional[Fence] = None
     ) -> SttResult:
         now = self._clock()
@@ -86,11 +114,7 @@ class SttFailoverChain:
                 continue  # звено на cooldown — пропускаем без попытки
             try:
                 result = await entry.provider.transcribe(req, fence=fence)
-                return dataclasses.replace(
-                    result,
-                    provider=entry.provider.name,
-                    entry=getattr(entry.provider, "label", entry.provider.name),
-                )
+                return self._finish(entry, result)
             except _COOLDOWN_ERRORS as exc:
                 last_exc = exc
                 if entry.cooldown_s > 0:
@@ -105,6 +129,78 @@ class SttFailoverChain:
                 last_exc = exc
                 continue
         raise SttChainExhausted("все звенья STT недоступны") from last_exc
+
+    async def _hedged(
+        self, req: SttRequest, *, fence: Optional[Fence] = None
+    ) -> SttResult:
+        """Hedging облачных звеньев: следующее стартует, если предыдущее
+        молчит `hedge_delay_s`; первый успех выигрывает, прочие отменяются.
+        Общий потолок — `deadline_s`."""
+        hedge = self._hedge_delay_s or 0.0
+        deadline = self._clock() + (self._deadline_s or 30.0)
+        pending = [
+            e for e in self._entries
+            if e.blocked_until <= self._clock() and not e.inflight
+        ]
+        if not pending:
+            raise SttChainExhausted("все звенья STT на cooldown")
+
+        start = self._clock()
+        launched = 0
+        running: dict[asyncio.Task, ChainEntry] = {}
+        last_exc: BaseException | None = None
+        winner: tuple[ChainEntry, SttResult] | None = None
+        try:
+            while pending or running:
+                now = self._clock()
+                if now >= deadline:
+                    break
+                # Пора запускать следующее звено?
+                if pending and (
+                    not running or now - start >= launched * hedge
+                ):
+                    entry = pending.pop(0)
+                    if entry.inflight:
+                        continue
+                    running[asyncio.create_task(self._attempt(entry, req, fence))] = entry
+                    launched += 1
+                    continue
+
+                if not running:
+                    break
+                wait_s = deadline - now
+                if pending:
+                    wait_s = min(wait_s, max(0.001, (start + launched * hedge) - now))
+                done, _ = await asyncio.wait(
+                    list(running), timeout=wait_s, return_when=asyncio.FIRST_COMPLETED
+                )
+                if not done:
+                    continue  # тик до старта следующего звена или до дедлайна
+                for task in done:
+                    entry = running.pop(task)
+                    try:
+                        winner = (entry, task.result())
+                        break
+                    except _COOLDOWN_ERRORS as exc:
+                        last_exc = exc
+                        if entry.cooldown_s > 0:
+                            entry.blocked_until = self._clock() + entry.cooldown_s
+                        log.warning(
+                            "STT звено %s недоступно: %s", entry.provider.name, exc
+                        )
+                    except ProviderResponseInvalid as exc:
+                        last_exc = exc
+                if winner is not None:
+                    break
+        finally:
+            for task in running:
+                task.cancel()
+            if running:
+                await asyncio.gather(*running, return_exceptions=True)
+
+        if winner is None:
+            raise SttChainExhausted("все звенья STT недоступны") from last_exc
+        return self._finish(winner[0], winner[1])
 
     async def close(self) -> None:
         for entry in self._entries:

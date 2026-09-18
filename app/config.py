@@ -62,6 +62,13 @@ class SttSection:
     language_autodetect: bool
     #: Инвариант §8.7: цепочка обязана заканчиваться local_whisper.
     chain: tuple[SttChainEntry, ...]
+    #: Hedging облачных звеньев: старт следующего, если предыдущее не
+    #: ответило за это время (0 = стартовать все сразу).
+    hedge_delay_s: float = 1.5
+    #: Общий дедлайн облачной фазы одного сегмента, с.
+    cloud_deadline_s: float = 20.0
+    #: Максимум одновременных облачных диспетчеров (сегментов).
+    max_concurrent_dispatch: int = 4
 
 
 STT_PROVIDER_CHOICES: List[str] = ["local_whisper", "openai_api", "custom_api"]
@@ -206,6 +213,9 @@ FLAT_DEFAULTS: Dict[str, Any] = {
     "stt.mode": "file_per_segment",
     "stt.json_output": True,
     "stt.language_autodetect": True,
+    "stt.hedge_delay_s": 1.5,
+    "stt.cloud_deadline_s": 20.0,
+    "stt.max_concurrent_dispatch": 4,
     # Цепочка — массив таблиц TOML ([[stt.chain]]); переменное число звеньев
     # не укладывается в скалярные dot-ключи, поэтому хранится списком.
     "stt.chain": DEFAULT_STT_CHAIN,
@@ -440,6 +450,15 @@ def _validate_stt(stt: Dict[str, Any]) -> List[str]:
     lang_detect = stt.get("language_autodetect")
     if not isinstance(lang_detect, bool):
         msgs.append("stt.language_autodetect must be boolean")
+    hedge = stt.get("hedge_delay_s", 0)
+    if not isinstance(hedge, (int, float)) or hedge < 0:
+        msgs.append("stt.hedge_delay_s must be >= 0")
+    deadline = stt.get("cloud_deadline_s", 0)
+    if not isinstance(deadline, (int, float)) or deadline <= 0:
+        msgs.append("stt.cloud_deadline_s must be positive")
+    conc = stt.get("max_concurrent_dispatch", 0)
+    if not isinstance(conc, int) or conc < 1:
+        msgs.append("stt.max_concurrent_dispatch must be an integer >= 1")
     msgs.extend(_validate_stt_chain(stt.get("chain", [])))
     return msgs
 
@@ -650,6 +669,9 @@ def _dict_to_config(data: Dict[str, Any], source_path: Path = Path(".")) -> Conf
         json_output=stt_flat.get("json_output", True),
         language_autodetect=stt_flat.get("language_autodetect", True),
         chain=tuple(_chain_entry_from_dict(e) for e in chain_raw),
+        hedge_delay_s=stt_flat.get("hedge_delay_s", 1.5),
+        cloud_deadline_s=stt_flat.get("cloud_deadline_s", 20.0),
+        max_concurrent_dispatch=stt_flat.get("max_concurrent_dispatch", 4),
     )
     # Build streams dict
     streams_raw = get_section("streams")
@@ -800,6 +822,9 @@ def to_toml(config: Config) -> str:
         "mode": config.stt.mode,
         "json_output": config.stt.json_output,
         "language_autodetect": config.stt.language_autodetect,
+        "hedge_delay_s": config.stt.hedge_delay_s,
+        "cloud_deadline_s": config.stt.cloud_deadline_s,
+        "max_concurrent_dispatch": config.stt.max_concurrent_dispatch,
     })
     for entry in config.stt.chain:
         lines.append("[[stt.chain]]")

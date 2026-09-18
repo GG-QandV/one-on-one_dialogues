@@ -1,7 +1,13 @@
-"""app/stt/factory.py — сборка цепочки STT-провайдеров по конфигу.
+"""app/stt/factory.py — сборка STT-провайдеров по конфигу.
 
-Одна точка истины: и старт процесса, и `POST /api/stt` идут сюда.
-Порядок звеньев — как в `config.stt.chain` (инвариант: последнее — local).
+Два независимых артефакта (A/§8.7):
+  * `build_stt_cloud_chain` — облачные звенья (hedging, cooldown), исполняются
+    ВНЕ сериализованного локального воркера;
+  * `build_local_provider` — терминальный локальный фолбэк, ставится
+    провайдером `SttScheduler` (один экземпляр whisper).
+
+`local_whisper` не входит в облачную цепочку: это чёрный ящик-фолбэк на случай
+закрытого профиля (§приватность) или недоступности облака.
 """
 
 from __future__ import annotations
@@ -31,56 +37,64 @@ def resolve_model_path(model: str, models_dir: Path = DEFAULT_MODELS_DIR) -> Pat
     return models_dir / model
 
 
-def build_stt_chain(
+def build_stt_cloud_chain(
     stt: SttSection,
     *,
     privacy: Optional[PrivacyController] = None,
     keystore: Optional[KeyStore] = None,
-    binary: Path = DEFAULT_BINARY,
-    threads: int = 4,
-    models_dir: Path = DEFAULT_MODELS_DIR,
     secrets_dir: Path = DEFAULT_SECRETS_DIR,
-) -> SttFailoverChain:
-    """Построить цепочку фолбэков по секции `[stt]`."""
+) -> Optional[SttFailoverChain]:
+    """Облачная цепочка с hedging. None — если облачных звеньев нет."""
     entries = [
         ChainEntry(
-            provider=_build_entry_provider(
-                e,
-                privacy=privacy,
-                keystore=keystore,
-                binary=binary,
-                threads=threads,
-                models_dir=models_dir,
-                secrets_dir=secrets_dir,
+            provider=_build_cloud_provider(
+                e, privacy=privacy, keystore=keystore, secrets_dir=secrets_dir
             ),
             cooldown_s=e.cooldown_s,
         )
         for e in stt.chain
+        if e.provider != "local_whisper"
     ]
-    return SttFailoverChain(entries)
+    if not entries:
+        return None
+    return SttFailoverChain(
+        entries,
+        hedge_delay_s=stt.hedge_delay_s,
+        deadline_s=stt.cloud_deadline_s,
+    )
 
 
-def _build_entry_provider(
+def build_local_provider(
+    stt: SttSection,
+    *,
+    binary: Path = DEFAULT_BINARY,
+    threads: int = 4,
+    models_dir: Path = DEFAULT_MODELS_DIR,
+) -> LocalWhisperProvider:
+    """Терминальный локальный фолбэк (инвариант §8.7: звено обязано быть)."""
+    local = next((e for e in stt.chain if e.provider == "local_whisper"), None)
+    if local is None:
+        raise ValueError(
+            "stt.chain must contain a local_whisper entry (invariant §8.7)"
+        )
+    return LocalWhisperProvider(
+        model_path=resolve_model_path(local.model, models_dir),
+        fallback_model_path=resolve_model_path(
+            local.fallback_model or local.model, models_dir
+        ),
+        binary=binary,
+        threads=threads,
+        device=local.device,
+    )
+
+
+def _build_cloud_provider(
     entry: SttChainEntry,
     *,
     privacy: Optional[PrivacyController],
     keystore: Optional[KeyStore],
-    binary: Path,
-    threads: int,
-    models_dir: Path,
     secrets_dir: Path,
-):
-    if entry.provider == "local_whisper":
-        return LocalWhisperProvider(
-            model_path=resolve_model_path(entry.model, models_dir),
-            fallback_model_path=resolve_model_path(
-                entry.fallback_model or entry.model, models_dir
-            ),
-            binary=binary,
-            threads=threads,
-            device=entry.device,
-        )
-
+) -> CloudSttProvider:
     key_name = entry.key_name
 
     def key_provider() -> str:

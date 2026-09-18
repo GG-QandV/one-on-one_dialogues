@@ -514,9 +514,12 @@ class TestSttRoutes:
             {"provider": "local_whisper", "model": "ggml-base.bin", "cooldown_s": 0},
         ]
         await ui_test_client.post("/api/stt", json={"chain": chain})
-        assert app_under_test.stt_provider.name == "failover_chain"
-        names = [e.provider.name for e in app_under_test.stt_provider._entries]  # noqa: SLF001
-        assert names == ["openai_api", "local_whisper"]
+        # local — терминальный фолбэк (провайдер scheduler), облако — отдельная цепочка.
+        assert app_under_test.stt_provider.name == "local_whisper"
+        cloud = app_under_test.stt_cloud_chain
+        assert cloud is not None
+        names = [e.provider.name for e in cloud._entries]  # noqa: SLF001
+        assert names == ["openai_api"]
 
 
 # ============================================================ 5. Регресс

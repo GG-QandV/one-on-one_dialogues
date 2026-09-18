@@ -22,7 +22,7 @@ from app.security.byok import KeyStore
 from app.security.keyfiles import load_key_file, read_secret_file
 from app.stt.base import SttRequest
 from app.stt.cloud_api import CloudSttProvider
-from app.stt.factory import build_stt_chain
+from app.stt.factory import build_stt_cloud_chain
 
 
 def _req(lang: str | None = None) -> SttRequest:
@@ -191,7 +191,8 @@ def test_factory_key_provider_falls_back_to_file(tmp_path: Path):
         ),
     )
     store = KeyStore()
-    chain = build_stt_chain(section, keystore=store, secrets_dir=tmp_path)
+    chain = build_stt_cloud_chain(section, keystore=store, secrets_dir=tmp_path)
+    assert chain is not None
     provider = chain._entries[0].provider  # noqa: SLF001
     assert provider.label == "custom_api:groq_0"
     assert provider._key_provider() == "sk-from-file"  # noqa: SLF001

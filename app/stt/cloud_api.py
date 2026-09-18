@@ -104,6 +104,8 @@ class CloudSttProvider(BaseSttProvider):
             detected_language=data.get("language"),
             confidence=_mean_logprob(data.get("segments")),
             model=self._model,
+            provider=self.name,
+            entry=self.label,
         )
 
     def snapshot(self) -> dict[str, Any]:

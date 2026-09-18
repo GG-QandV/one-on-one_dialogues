@@ -46,13 +46,13 @@ from app.audio.segmenter import (
 from app.config import SttSection, default_stt_section
 from app.db import Database, DbConfig
 from app.errors import ProviderError, SpeechLocalError, StaleGenerationError
-from app.privacy import PrivacyController, PrivacyProfile
+from app.privacy import Capability, PrivacyController, PrivacyProfile
 from app.queue import JobQueue, JobType, QueueConfig
 from app.security.byok import KeyStore
 from app.security.keyfiles import load_key_file
-from app.stt.base import SttResult
+from app.stt.base import SttRequest, SttResult
 from app.stt.chain import SttChainExhausted
-from app.stt.factory import build_stt_chain
+from app.stt.factory import build_local_provider, build_stt_cloud_chain
 from app.stt.scheduler import SchedulerConfig, SttScheduler
 from app.translation.base import TranslationMode, TranslationProvider, TranslationRequest
 from app.translation.context import ContextConfig
@@ -142,6 +142,9 @@ class Application:
         self._stream_languages: dict[str, str] = {}
         self._stt_provider: Any = None
         self._stt_cfg: SttSection | None = None
+        self._stt_cloud: Any = None
+        self._stt_tasks: set[asyncio.Task] = set()
+        self._stt_dispatch_sem: asyncio.Semaphore | None = None
         self._config_path: Path = config.config_path or Path("config.toml")
 
     # ================================================================ запуск
@@ -191,14 +194,18 @@ class Application:
         from app.drafts.translate import DraftTranslator
         self._draft_translator = DraftTranslator(self._provider, self._draft_guard)
 
-        # 4. STT: цепочка провайдеров по конфигу + один scheduler на процесс.
+        # 4. STT: облачная цепочка вне воркера (A) + локальный фолбэк (§8.7).
         self._stt_cfg = cfg.stt if cfg.stt is not None else default_stt_section()
         self.refresh_stt_keys()
-        self._stt_provider = build_stt_chain(
+        self._stt_cloud = build_stt_cloud_chain(
             self._stt_cfg,
             privacy=self.privacy,
             keystore=self.keystore,
             secrets_dir=self._cfg.secrets_dir,
+        )
+        self._stt_provider = build_local_provider(self._stt_cfg)
+        self._stt_dispatch_sem = asyncio.Semaphore(
+            self._stt_cfg.max_concurrent_dispatch
         )
         self.stt = SttScheduler(
             self._stt_provider,
@@ -249,8 +256,17 @@ class Application:
 
     @property
     def stt_provider(self) -> Any:
-        """Активный STT-провайдер (для тестов hot-swap и диагностики)."""
+        """Локальный STT-провайдер (терминальный фолбэк)."""
         return self._stt_provider
+
+    @property
+    def stt_cloud_chain(self) -> Any:
+        """Облачная цепочка (вне сериализованного воркера) или None."""
+        return self._stt_cloud
+
+    def _language_hint(self, role: str) -> str | None:
+        lang = self._cfg.scheduler.language_by_role.get(role, "auto")
+        return None if lang == "auto" else lang
 
     def refresh_stt_keys(self) -> None:
         """Подтянуть файловые ключи (~/.secrets/<key_name>) в KeyStore.
@@ -288,19 +304,20 @@ class Application:
             return
         self._stt_cfg = cfg
         self.refresh_stt_keys()
-        new_provider = build_stt_chain(
+        old_cloud = self._stt_cloud
+        self._stt_cloud = build_stt_cloud_chain(
             cfg,
             privacy=self.privacy,
             keystore=self.keystore,
             secrets_dir=self._cfg.secrets_dir,
         )
-        old = self._stt_provider
-        self._stt_provider = new_provider
+        new_local = build_local_provider(cfg)
         if self.stt is not None:
-            old = self.stt.set_provider(new_provider)
-        if old is not None:
+            self.stt.set_provider(new_local)
+        self._stt_provider = new_local
+        if old_cloud is not None:
             with contextlib.suppress(Exception):
-                await old.close()
+                await old_cloud.close()
 
     async def start_session(self, meeting_title: str | None = None) -> str:
         """Начать сессию: запись в БД, захват, сегментация, конвейер."""
@@ -401,17 +418,9 @@ class Application:
                 self.privacy.profile.value, _now_iso(),
             ),
         )
-        if not self.stt.submit(seg):
-            # Очередь переполнена: сегмент остаётся pending, jobs-очередь
-            # доставит его в STT позже — WAV на диске, данные не потеряны.
-            await self.jobs.enqueue(
-                JobType.STT, segment_id=seg.id,
-                payload={"audio_path": str(seg.audio_path),
-                         "duration_ms": seg.duration_ms,
-                         "role": seg.role},
-                idempotency_key=f"stt:{seg.id}",
-                delay_s=5.0,
-            )
+        # Облако-first вне сериализованного воркера (A); local — фолбэк.
+        # Не await: сегментатор продолжает писать, не дожидаясь сети.
+        self._spawn_stt(seg)
 
     async def _accept_partial(self, stream_id: str, part: PartialUtterance) -> None:
         """Быстрый трек. В MVP-срезе — только учёт; облачный realtime (D5)
@@ -419,6 +428,66 @@ class Application:
         # Намеренно пусто до задачи D5: частичные результаты не пишутся в БД
         # (инвариант 3) и без облачного провайдера им некуда идти.
         return
+
+    # ----------------------------------------------------- диспетчер STT (A/B)
+
+    def _spawn_stt(self, seg: FinalSegment) -> None:
+        """Запустить облако-first диспетчер сегмента вне local-воркера."""
+        task = asyncio.create_task(
+            self._dispatch_stt(seg), name=f"stt-dispatch:{seg.id}"
+        )
+        self._stt_tasks.add(task)
+        task.add_done_callback(self._stt_tasks.discard)
+
+    async def _dispatch_stt(self, seg: FinalSegment) -> bool:
+        """Ограниченная конкурентность облачных диспетчеров."""
+        sem = self._stt_dispatch_sem
+        if sem is None:
+            return await self._dispatch_stt_inner(seg)
+        async with sem:
+            return await self._dispatch_stt_inner(seg)
+
+    async def _dispatch_stt_inner(self, seg: FinalSegment) -> bool:
+        """Облако (если приватность разрешает) → иначе local. True — принят.
+
+        Local НЕ запускается параллельно облаку: только при запрете отправки
+        аудио в облако (закрытый профиль) или когда все облачные звенья
+        недоступны/на cooldown.
+        """
+        assert self.stt and self.jobs
+        chain = self._stt_cloud
+        if (
+            chain is not None
+            and self.privacy is not None
+            and self.privacy.allows(Capability.AUDIO_TO_CLOUD)
+        ):
+            try:
+                result = await chain.transcribe(
+                    SttRequest(
+                        audio_path=seg.audio_path,
+                        segment_id=seg.id,
+                        language_hint=self._language_hint(seg.role),
+                        audio_ms=seg.duration_ms,
+                    )
+                )
+            except SttChainExhausted:
+                result = None
+            if result is not None:
+                await self._on_stt_result(seg, result)
+                return True
+
+        # Закрытый профиль или облако недоступно → терминальный local-фолбэк.
+        if self.stt.submit(seg):
+            return True
+        # Очередь переполнена: сегмент остаётся pending, jobs доставит позже.
+        await self.jobs.enqueue(
+            JobType.STT, segment_id=seg.id,
+            payload={"audio_path": str(seg.audio_path),
+                     "duration_ms": seg.duration_ms, "role": seg.role},
+            idempotency_key=f"stt:{seg.id}",
+            delay_s=5.0,
+        )
+        return False
 
     # ---------------------------------------------------------- результаты STT
 
@@ -493,7 +562,7 @@ class Application:
             reason=None,  # type: ignore[arg-type]
             mean_level_db=0.0,
         )
-        if not self.stt.submit(seg):
+        if not await self._dispatch_stt(seg):
             raise SpeechLocalError("очередь STT всё ещё переполнена")
 
     # ============================================================ TRANSLATE
@@ -761,6 +830,17 @@ class Application:
         if self._stopping.is_set():
             return
         self._stopping.set()
+        # Облачные диспетчеры (вне local-воркера) — дать завершиться, пока
+        # jobs/db ещё живы: они пишут результат через _on_stt_result.
+        pending = [t for t in self._stt_tasks if not t.done()]
+        if pending:
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(
+                    asyncio.gather(*pending, return_exceptions=True), timeout=10.0
+                )
+        if self._stt_cloud is not None:
+            with contextlib.suppress(Exception):
+                await self._stt_cloud.close()
         await self.stop_session()
         if self.jobs is not None:
             await self.jobs.stop()
@@ -810,6 +890,7 @@ class Application:
             "session_id": self._session_id,
             "privacy": self.privacy.snapshot() if self.privacy else None,
             "stt": self.stt.snapshot() if self.stt else None,
+            "stt_cloud": self._stt_cloud.snapshot() if self._stt_cloud else None,
             "capture": self.capture.snapshot() if self.capture else None,
             "segmenters": {
                 role: s.snapshot() for role, s in self._segmenters.items()
