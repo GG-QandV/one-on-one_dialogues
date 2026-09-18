@@ -22,16 +22,13 @@ def test_defaults_match_spec():
     assert default_dict["provider"]["realtime"]["enabled_profiles"] == ["open"]
     assert default_dict["provider"]["draft"]["active"] == "gemini"
     assert default_dict["provider"]["draft"]["max_words"] == 120
-    assert default_dict["stt"]["active"] == "local_whisper"
     assert default_dict["stt"]["mode"] == "file_per_segment"
     assert default_dict["stt"]["json_output"] is True
     assert default_dict["stt"]["language_autodetect"] is True
-    assert default_dict["stt"]["local"]["model"] == "ggml-base.bin"
-    assert default_dict["stt"]["local"]["fallback_model"] == "ggml-tiny.bin"
-    assert default_dict["stt"]["local"]["device"] == "auto"
-    assert default_dict["stt"]["cloud"]["model"] == ""
-    assert default_dict["stt"]["cloud"]["endpoint"] == ""
-    assert default_dict["stt"]["cloud"]["timeout_s"] == 15.0
+    assert default_dict["stt"]["chain"][-1]["provider"] == "local_whisper"
+    assert default_dict["stt"]["chain"][-1]["model"] == "ggml-base.bin"
+    assert default_dict["stt"]["chain"][-1]["fallback_model"] == "ggml-tiny.bin"
+    assert default_dict["stt"]["chain"][-1]["cooldown_s"] == 0.0
     assert default_dict["streams"]["microphone"]["source_language"] == "ru"
     assert default_dict["streams"]["microphone"]["target_language"] == "en"
     assert default_dict["streams"]["microphone"]["enabled"] is True

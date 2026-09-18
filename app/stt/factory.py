@@ -1,17 +1,19 @@
-"""app/stt/factory.py — сборка активного STT-провайдера по конфигу.
+"""app/stt/factory.py — сборка цепочки STT-провайдеров по конфигу.
 
-Выбор — по `config.stt.active`, зеркально `_build_provider()` для перевода.
 Одна точка истины: и старт процесса, и `POST /api/stt` идут сюда.
+Порядок звеньев — как в `config.stt.chain` (инвариант: последнее — local).
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Callable
+from typing import Optional
 
-from app.config import SttSection
+from app.config import SttChainEntry, SttSection
+from app.errors import ProviderAuthError
 from app.privacy import PrivacyController
-from app.stt.base import SttProvider
+from app.security.byok import KeyStore
+from app.stt.chain import ChainEntry, SttFailoverChain
 from app.stt.cloud_api import CloudSttProvider
 from app.stt.local_whisper import LocalWhisperProvider
 
@@ -28,32 +30,65 @@ def resolve_model_path(model: str, models_dir: Path = DEFAULT_MODELS_DIR) -> Pat
     return models_dir / model
 
 
-def build_stt_provider(
+def build_stt_chain(
     stt: SttSection,
     *,
-    privacy: PrivacyController | None = None,
-    key_provider: Callable[[], str] | None = None,
+    privacy: Optional[PrivacyController] = None,
+    keystore: Optional[KeyStore] = None,
     binary: Path = DEFAULT_BINARY,
     threads: int = 4,
     models_dir: Path = DEFAULT_MODELS_DIR,
-) -> SttProvider:
-    """Построить провайдер по секции `[stt]`."""
-    if stt.active == "local_whisper":
+) -> SttFailoverChain:
+    """Построить цепочку фолбэков по секции `[stt]`."""
+    entries = [
+        ChainEntry(
+            provider=_build_entry_provider(
+                e,
+                privacy=privacy,
+                keystore=keystore,
+                binary=binary,
+                threads=threads,
+                models_dir=models_dir,
+            ),
+            cooldown_s=e.cooldown_s,
+        )
+        for e in stt.chain
+    ]
+    return SttFailoverChain(entries)
+
+
+def _build_entry_provider(
+    entry: SttChainEntry,
+    *,
+    privacy: Optional[PrivacyController],
+    keystore: Optional[KeyStore],
+    binary: Path,
+    threads: int,
+    models_dir: Path,
+):
+    if entry.provider == "local_whisper":
         return LocalWhisperProvider(
-            model_path=resolve_model_path(stt.local.model, models_dir),
+            model_path=resolve_model_path(entry.model, models_dir),
             fallback_model_path=resolve_model_path(
-                stt.local.fallback_model, models_dir
+                entry.fallback_model or entry.model, models_dir
             ),
             binary=binary,
             threads=threads,
-            device=stt.local.device,
+            device=entry.device,
         )
+
+    key_name = entry.key_name
+
+    def key_provider() -> str:
+        if keystore is None:
+            raise ProviderAuthError(f"keystore unavailable for key '{key_name}'")
+        return keystore.get(key_name)
+
     return CloudSttProvider(
-        active=stt.active,
-        endpoint=stt.cloud.endpoint,
-        model=stt.cloud.model,
-        language_hint=stt.cloud.language_hint,
-        timeout_s=stt.cloud.timeout_s,
+        active=entry.provider,
+        endpoint=entry.endpoint,
+        model=entry.model,
+        timeout_s=entry.timeout_s,
         privacy=privacy,
         key_provider=key_provider,
     )

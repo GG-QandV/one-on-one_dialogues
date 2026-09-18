@@ -23,6 +23,7 @@ class FakeSttResult:
     def __init__(self, text: str, model_used: str = "test"):
         self.raw_text = text
         self.model = model_used
+        self.provider = "test"
 
 
 @pytest.fixture

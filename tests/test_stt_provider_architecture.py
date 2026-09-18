@@ -27,13 +27,16 @@ from app.ui.server import UiConfig, UiServer
 class TestSttConfigDefaults:
     """Дефолты и обратная совместимость со старым config.toml."""
 
-    def test_defaults_active_is_local_whisper(self):
+    def test_defaults_chain_is_local_only(self):
         from app.config import defaults
 
-        assert defaults()["stt"]["active"] == "local_whisper"
+        chain = defaults()["stt"]["chain"]
+        assert len(chain) == 1
+        assert chain[0]["provider"] == "local_whisper"
+        assert chain[0]["model"] == "ggml-base.bin"
 
     def test_old_toml_without_stt_active_loads_with_default(self, tmp_path: Path):
-        """Старый config.toml (без stt.active и [stt.local]/[stt.cloud]) грузится."""
+        """Старый config.toml (без stt.chain) грузится на дефолтной цепочке."""
         from app import config
 
         old_toml = """
@@ -55,76 +58,113 @@ class TestSttConfigDefaults:
         path.write_text(old_toml, encoding="utf-8")
 
         loaded = config.load(path)
-        assert loaded.stt.active == "local_whisper"
-        assert loaded.stt.local.model == "ggml-base.bin"
+        assert loaded.stt.chain[-1].provider == "local_whisper"
+        assert loaded.stt.chain[0].model == "ggml-base.bin"
+
+
+def _chain(*, local_only: bool = False) -> list[dict]:
+    if local_only:
+        return [{"provider": "local_whisper", "model": "ggml-base.bin", "cooldown_s": 0}]
+    return [
+        {
+            "provider": "openai_api", "model": "whisper-1", "key_name": "k1",
+            "timeout_s": 15, "cooldown_s": 60,
+        },
+        {"provider": "local_whisper", "model": "ggml-base.bin", "cooldown_s": 0},
+    ]
 
 
 class TestSttConfigValidation:
-    def test_active_openai_api_without_cloud_model_fails(self):
+    def test_chain_without_local_at_end_fails(self):
         from app.config import validate
 
         flat = _base_flat_config()
-        flat["stt.active"] = "openai_api"
-        flat["stt.cloud.model"] = ""
-        assert any("stt.cloud.model" in e for e in validate(flat))
+        flat["stt.chain"] = [
+            {
+                "provider": "openai_api", "model": "whisper-1", "key_name": "k1",
+                "timeout_s": 15, "cooldown_s": 60,
+            }
+        ]
+        errors = validate(flat)
+        assert any("must end with a 'local_whisper'" in e for e in errors)
 
-    def test_active_openai_api_with_cloud_model_passes(self):
+    def test_two_local_entries_fail(self):
         from app.config import validate
 
         flat = _base_flat_config()
-        flat["stt.active"] = "openai_api"
-        flat["stt.cloud.model"] = "whisper-1"
+        flat["stt.chain"] = [
+            {"provider": "local_whisper", "model": "a.bin", "cooldown_s": 0},
+            {"provider": "local_whisper", "model": "b.bin", "cooldown_s": 0},
+        ]
+        assert any("exactly one 'local_whisper'" in e for e in validate(flat))
+
+    def test_invalid_provider_fails(self):
+        from app.config import validate
+
+        flat = _base_flat_config()
+        flat["stt.chain"] = [
+            {"provider": "nope", "model": "x"},
+            {"provider": "local_whisper", "model": "ggml-base.bin", "cooldown_s": 0},
+        ]
+        assert any("provider is invalid" in e for e in validate(flat))
+
+    def test_cloud_entry_requires_key_name(self):
+        from app.config import validate
+
+        flat = _base_flat_config()
+        flat["stt.chain"] = [
+            {"provider": "openai_api", "model": "whisper-1", "timeout_s": 15, "cooldown_s": 60},
+            {"provider": "local_whisper", "model": "ggml-base.bin", "cooldown_s": 0},
+        ]
+        assert any("key_name must be set" in e for e in validate(flat))
+
+    def test_duplicate_key_names_fail(self):
+        from app.config import validate
+
+        flat = _base_flat_config()
+        flat["stt.chain"] = [
+            {
+                "provider": "openai_api", "model": "a", "key_name": "dup",
+                "timeout_s": 15, "cooldown_s": 60,
+            },
+            {
+                "provider": "custom_api", "model": "b", "key_name": "dup",
+                "timeout_s": 15, "cooldown_s": 60,
+            },
+            {"provider": "local_whisper", "model": "ggml-base.bin", "cooldown_s": 0},
+        ]
+        assert any("unique key_name" in e for e in validate(flat))
+
+    def test_valid_chain_passes(self):
+        from app.config import validate
+
+        flat = _base_flat_config()
+        flat["stt.chain"] = _chain()
         assert not [e for e in validate(flat) if e.startswith("stt.")]
-
-    def test_active_invalid_value_fails(self):
-        from app.config import validate
-
-        flat = _base_flat_config()
-        flat["stt.active"] = "not_a_real_provider"
-        assert any("stt.active" in e for e in validate(flat))
-
-    def test_local_whisper_does_not_require_cloud_model(self):
-        from app.config import validate
-
-        flat = _base_flat_config()
-        flat["stt.active"] = "local_whisper"
-        flat["stt.cloud.model"] = ""
-        assert not [e for e in validate(flat) if "stt.cloud.model" in e]
-
-    def test_local_device_must_be_known_value(self):
-        from app.config import validate
-
-        flat = _base_flat_config()
-        flat["stt.local.device"] = "quantum"
-        assert any("stt.local.device" in e for e in validate(flat))
 
 
 class TestSttConfigRoundtrip:
-    def test_to_toml_then_load_preserves_stt_section(self, tmp_path: Path):
+    def test_to_toml_then_load_preserves_chain(self, tmp_path: Path):
         from app import config
 
         cfg = config.load_or_default(tmp_path / "config.toml")
         toml_text = config.to_toml(cfg)
-        assert "[stt.local]" in toml_text
-        assert "[stt.cloud]" in toml_text
+        assert "[[stt.chain]]" in toml_text
 
         path2 = tmp_path / "config2.toml"
         path2.write_text(toml_text, encoding="utf-8")
         reloaded = config.load(path2)
-        assert reloaded.stt.active == cfg.stt.active
-        assert reloaded.stt.local.model == cfg.stt.local.model
+        assert reloaded.stt.chain == cfg.stt.chain
 
-    def test_update_changes_only_stt_section(self, tmp_path: Path):
+    def test_update_replaces_chain(self, tmp_path: Path):
         from app import config
 
         path = tmp_path / "config.toml"
         config.load_or_default(path)
 
-        updated = config.update(
-            path, {"stt": {"active": "custom_api", "cloud": {"model": "my-model"}}}
-        )
-        assert updated.stt.active == "custom_api"
-        assert updated.stt.cloud.model == "my-model"
+        updated = config.update(path, {"stt": {"chain": _chain()}})
+        assert [e.provider for e in updated.stt.chain] == ["openai_api", "local_whisper"]
+        assert updated.stt.chain[0].key_name == "k1"
         assert updated.privacy.default_profile == "open"
 
 
@@ -396,59 +436,87 @@ async def ui_test_client(stt_app):
 
 
 class TestSttRoutes:
-    async def test_get_stt_returns_active_and_choices_without_key(self, ui_test_client):
+    async def test_get_stt_returns_chain_without_raw_key(self, ui_test_client):
         resp = await ui_test_client.get("/api/stt")
         assert resp.status == 200
         body = await resp.json()
-        assert body["active"] in ("local_whisper", "openai_api", "custom_api")
-        assert "choices" in body
-        assert "key" not in body.get("cloud", {})
-        assert body["cloud"]["key_present"] is False
+        assert body["chain"][-1]["provider"] == "local_whisper"
+        assert body["choices"] == ["local_whisper", "openai_api", "custom_api"]
+        for entry in body["chain"]:
+            assert "key" not in entry  # только key_present/key_masked
+        assert "key" not in body
 
-    async def test_post_stt_switches_active_provider(self, ui_test_client):
+    async def test_post_stt_replaces_chain(self, ui_test_client):
         resp = await ui_test_client.post(
             "/api/stt",
             json={
-                "active": "openai_api",
-                "cloud": {
-                    "model": "whisper-1",
-                    "endpoint": "",
-                    "language_hint": "",
-                    "timeout_s": 15,
-                },
+                "chain": [
+                    {
+                        "provider": "openai_api",
+                        "model": "whisper-1",
+                        "key_name": "stt_openai",
+                        "timeout_s": 15,
+                        "cooldown_s": 60,
+                    },
+                    {"provider": "local_whisper", "model": "ggml-base.bin", "cooldown_s": 0},
+                ]
             },
         )
         assert resp.status == 204
 
         body = await (await ui_test_client.get("/api/stt")).json()
-        assert body["active"] == "openai_api"
-        assert body["cloud"]["model"] == "whisper-1"
+        assert [e["provider"] for e in body["chain"]] == ["openai_api", "local_whisper"]
+        assert body["chain"][0]["model"] == "whisper-1"
 
-    async def test_post_stt_invalid_active_returns_400(self, ui_test_client):
-        resp = await ui_test_client.post("/api/stt", json={"active": "not_a_provider"})
-        assert resp.status == 400
-
-    async def test_post_stt_with_api_key_stores_in_keystore_not_config(
-        self, ui_test_client, tmp_config_path
-    ):
+    async def test_post_stt_invalid_chain_returns_400(self, ui_test_client):
         resp = await ui_test_client.post(
             "/api/stt",
             json={
-                "active": "openai_api",
-                "cloud": {"model": "whisper-1"},
-                "api_key": "sk-CANARY-ROUTE-42",
+                "chain": [
+                    {
+                        "provider": "openai_api", "model": "whisper-1",
+                        "key_name": "k", "timeout_s": 15, "cooldown_s": 60,
+                    }
+                ]
             },
+        )
+        assert resp.status == 400
+
+    async def test_post_stt_with_key_stores_in_keystore_not_config(
+        self, ui_test_client, tmp_config_path
+    ):
+        chain = [
+            {
+                "provider": "openai_api", "model": "whisper-1",
+                "key_name": "stt_openai", "timeout_s": 15, "cooldown_s": 60,
+            },
+            {"provider": "local_whisper", "model": "ggml-base.bin", "cooldown_s": 0},
+        ]
+        resp = await ui_test_client.post(
+            "/api/stt", json={"chain": chain, "keys": {"stt_openai": "sk-CANARY-ROUTE-42"}}
         )
         assert resp.status == 204
         assert "sk-CANARY-ROUTE-42" not in tmp_config_path.read_text(encoding="utf-8")
 
-    async def test_switch_without_restart_next_job_uses_new_provider(
+        body = await (await ui_test_client.get("/api/stt")).json()
+        cloud = body["chain"][0]
+        assert cloud["key_present"] is True
+        assert "CANARY" not in (cloud["key_masked"] or "")
+
+    async def test_switch_without_restart_uses_new_chain(
         self, ui_test_client, app_under_test
     ):
-        await ui_test_client.post(
-            "/api/stt", json={"active": "openai_api", "cloud": {"model": "whisper-1"}}
-        )
-        assert app_under_test.stt_provider.name != "local_whisper"
+        chain = [
+            {
+                "provider": "openai_api", "model": "whisper-1",
+                "key_name": "stt_openai", "timeout_s": 15, "cooldown_s": 60,
+            },
+            {"provider": "local_whisper", "model": "ggml-base.bin", "cooldown_s": 0},
+        ]
+        await ui_test_client.post("/api/stt", json={"chain": chain})
+        assert app_under_test.stt_provider.name == "failover_chain"
+        names = [e.provider.name for e in app_under_test.stt_provider._entries]  # noqa: SLF001
+        assert names == ["openai_api", "local_whisper"]
 
 
 # ============================================================ 5. Регресс

@@ -45,6 +45,8 @@ class SttResult:
     provider_request_id: Optional[str] = None
     #: Имя использованной модели — пишется в segments.stt_model.
     model: Optional[str] = None
+    #: Имя звена, фактически распознавшего сегмент (для stt_provider_used).
+    provider: Optional[str] = None
 
 
 @runtime_checkable

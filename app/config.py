@@ -42,31 +42,40 @@ class DraftProviderSection:
 
 
 @dataclass(frozen=True, slots=True)
-class SttLocalSection:
-    model: str  # "ggml-base.bin" — имя/путь модели whisper.cpp
-    fallback_model: str  # "ggml-tiny.bin" — при нехватке памяти/OOM
-    device: str  # "cpu" | "cuda" | "auto"
+class SttChainEntry:
+    """Одно звено цепочки STT. Порядок в списке = порядок попыток."""
 
-
-@dataclass(frozen=True, slots=True)
-class SttCloudSection:
-    endpoint: str  # "" = дефолтный endpoint провайдера
-    model: str  # "whisper-1", "gpt-4o-transcribe" и т.п.
-    language_hint: str  # "" = автоопределение на стороне API
-    timeout_s: float
+    provider: str  # "local_whisper" | "openai_api" | "custom_api"
+    model: str
+    endpoint: str = ""  # только для облачных
+    key_name: str = ""  # имя ключа в KeyStore, только для облачных
+    fallback_model: str = ""  # только для local_whisper (OOM-фолбэк)
+    device: str = "auto"  # только для local_whisper
+    timeout_s: float = 15.0  # только для облачных
+    cooldown_s: float = 60.0  # 0 для local_whisper (последнее звено)
 
 
 @dataclass(frozen=True, slots=True)
 class SttSection:
-    active: str  # "local_whisper" | "openai_api" | "custom_api"
-    mode: str  # "file_per_segment"
+    mode: str
     json_output: bool
     language_autodetect: bool
-    local: SttLocalSection
-    cloud: SttCloudSection
+    #: Инвариант §8.7: цепочка обязана заканчиваться local_whisper.
+    chain: tuple[SttChainEntry, ...]
 
 
-STT_ACTIVE_CHOICES: List[str] = ["local_whisper", "openai_api", "custom_api"]
+STT_PROVIDER_CHOICES: List[str] = ["local_whisper", "openai_api", "custom_api"]
+
+#: Дефолтная цепочка — только local_whisper (поведение до рефактора).
+DEFAULT_STT_CHAIN: List[Dict[str, Any]] = [
+    {
+        "provider": "local_whisper",
+        "model": "ggml-base.bin",
+        "fallback_model": "ggml-tiny.bin",
+        "device": "auto",
+        "cooldown_s": 0.0,
+    },
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,17 +203,12 @@ FLAT_DEFAULTS: Dict[str, Any] = {
     "provider.draft.active": "gemini",
     "provider.draft.model": "",
     "provider.draft.max_words": 120,
-    "stt.active": "local_whisper",
     "stt.mode": "file_per_segment",
     "stt.json_output": True,
     "stt.language_autodetect": True,
-    "stt.local.model": "ggml-base.bin",
-    "stt.local.fallback_model": "ggml-tiny.bin",
-    "stt.local.device": "auto",
-    "stt.cloud.endpoint": "",
-    "stt.cloud.model": "",
-    "stt.cloud.language_hint": "",
-    "stt.cloud.timeout_s": 15.0,
+    # Цепочка — массив таблиц TOML ([[stt.chain]]); переменное число звеньев
+    # не укладывается в скалярные dot-ключи, поэтому хранится списком.
+    "stt.chain": DEFAULT_STT_CHAIN,
     "streams.microphone.source_language": "ru",
     "streams.microphone.target_language": "en",
     "streams.microphone.pipewire_node": "",
@@ -261,6 +265,22 @@ def defaults() -> Dict[str, Any]:
 def default_stt_section() -> SttSection:
     """Собранная секция [stt] из дефолтов — для запуска без config.toml."""
     return _dict_to_config(FLAT_DEFAULTS).stt
+
+
+def _chain_entry_from_dict(entry: Dict[str, Any]) -> SttChainEntry:
+    """Собрать звено цепочки с дефолтами по типу провайдера."""
+    provider = entry.get("provider", "local_whisper")
+    is_local = provider == "local_whisper"
+    return SttChainEntry(
+        provider=provider,
+        model=entry.get("model", ""),
+        endpoint=entry.get("endpoint", ""),
+        key_name=entry.get("key_name", ""),
+        fallback_model=entry.get("fallback_model", ""),
+        device=entry.get("device", "auto"),
+        timeout_s=entry.get("timeout_s", 15.0),
+        cooldown_s=entry.get("cooldown_s", 0.0 if is_local else 60.0),
+    )
 
 
 def _flatten_dict(d: Dict[str, Any], parent_key: str = "", sep: str = ".") -> Dict[str, Any]:
@@ -353,9 +373,66 @@ def _validate_draft_provider(prov: Dict[str, Any]) -> List[str]:
     return msgs
 
 
+def _validate_stt_chain(chain: Any) -> List[str]:
+    """Валидация цепочки фолбэков. Инвариант §8.7: конец — всегда local_whisper."""
+    msgs: List[str] = []
+    if not isinstance(chain, list):
+        return ["stt.chain must be an array of tables"]
+    if not chain:
+        return ["stt.chain must contain at least one entry"]
+
+    if chain[-1].get("provider") != "local_whisper":
+        msgs.append(
+            "stt.chain must end with a 'local_whisper' entry "
+            "(invariant §8.7: STT must not stop when cloud is unavailable)"
+        )
+
+    local_count = sum(1 for e in chain if e.get("provider") == "local_whisper")
+    if local_count != 1:
+        msgs.append("stt.chain must contain exactly one 'local_whisper' entry")
+
+    key_names: List[str] = []
+    for i, entry in enumerate(chain):
+        if not isinstance(entry, dict):
+            msgs.append(f"stt.chain[{i}] must be a table")
+            continue
+        provider = entry.get("provider")
+        if provider not in STT_PROVIDER_CHOICES:
+            msgs.append(f"stt.chain[{i}].provider is invalid: {provider!r}")
+            continue
+        if not entry.get("model"):
+            msgs.append(f"stt.chain[{i}].model must be set")
+
+        if provider == "local_whisper":
+            device = entry.get("device", "auto")
+            if device not in ("cpu", "cuda", "auto"):
+                msgs.append(
+                    f"stt.chain[{i}].device must be one of ['cpu', 'cuda', 'auto']"
+                )
+            if entry.get("cooldown_s", 0) not in (0, 0.0):
+                msgs.append(f"stt.chain[{i}] (local_whisper) must have cooldown_s == 0")
+        else:
+            key_name = entry.get("key_name")
+            if not key_name:
+                msgs.append(
+                    f"stt.chain[{i}].key_name must be set for cloud provider"
+                )
+            else:
+                key_names.append(key_name)
+            timeout = entry.get("timeout_s", 0)
+            if not isinstance(timeout, (int, float)) or timeout <= 0:
+                msgs.append(f"stt.chain[{i}].timeout_s must be positive")
+            cooldown = entry.get("cooldown_s", 0)
+            if not isinstance(cooldown, (int, float)) or cooldown < 0:
+                msgs.append(f"stt.chain[{i}].cooldown_s must be >= 0")
+
+    if len(key_names) != len(set(key_names)):
+        msgs.append("stt.chain entries must have unique key_name values")
+    return msgs
+
+
 def _validate_stt(stt: Dict[str, Any]) -> List[str]:
     msgs: List[str] = []
-    msgs.extend(_validate_str_in(stt.get("active", ""), STT_ACTIVE_CHOICES, "stt.active"))
     msgs.extend(_validate_str_in(stt.get("mode", ""), ["file_per_segment"], "stt.mode"))
     json_out = stt.get("json_output")
     if not isinstance(json_out, bool):
@@ -363,23 +440,7 @@ def _validate_stt(stt: Dict[str, Any]) -> List[str]:
     lang_detect = stt.get("language_autodetect")
     if not isinstance(lang_detect, bool):
         msgs.append("stt.language_autodetect must be boolean")
-
-    local = stt.get("local", {})
-    if not isinstance(local, dict) or not local.get("model"):
-        msgs.append("stt.local.model must be non-empty string")
-    if not isinstance(local, dict) or local.get("device") not in ("cpu", "cuda", "auto"):
-        msgs.append("stt.local.device must be one of ['cpu', 'cuda', 'auto']")
-
-    active = stt.get("active", "local_whisper")
-    cloud = stt.get("cloud", {})
-    if active != "local_whisper":
-        # Модель обязательна для любого облачного провайдера — по аналогии
-        # с provider.realtime.model must be set when active != "none".
-        if not isinstance(cloud, dict) or not cloud.get("model"):
-            msgs.append(f"stt.cloud.model must be set when stt.active is '{active}'")
-        timeout = cloud.get("timeout_s", 0) if isinstance(cloud, dict) else 0
-        if not isinstance(timeout, (int, float)) or timeout <= 0:
-            msgs.append("stt.cloud.timeout_s must be positive")
+    msgs.extend(_validate_stt_chain(stt.get("chain", [])))
     return msgs
 
 
@@ -583,24 +644,12 @@ def _dict_to_config(data: Dict[str, Any], source_path: Path = Path(".")) -> Conf
         draft=provider_draft,
     )
     stt_flat = get_section("stt")
-    stt_local_flat = get_section("stt", "local")
-    stt_cloud_flat = get_section("stt", "cloud")
+    chain_raw = stt_flat.get("chain", DEFAULT_STT_CHAIN)
     stt = SttSection(
-        active=stt_flat.get("active", "local_whisper"),
         mode=stt_flat.get("mode", "file_per_segment"),
         json_output=stt_flat.get("json_output", True),
         language_autodetect=stt_flat.get("language_autodetect", True),
-        local=SttLocalSection(
-            model=stt_local_flat.get("model", "ggml-base.bin"),
-            fallback_model=stt_local_flat.get("fallback_model", "ggml-tiny.bin"),
-            device=stt_local_flat.get("device", "auto"),
-        ),
-        cloud=SttCloudSection(
-            endpoint=stt_cloud_flat.get("endpoint", ""),
-            model=stt_cloud_flat.get("model", ""),
-            language_hint=stt_cloud_flat.get("language_hint", ""),
-            timeout_s=stt_cloud_flat.get("timeout_s", 15.0),
-        ),
+        chain=tuple(_chain_entry_from_dict(e) for e in chain_raw),
     )
     # Build streams dict
     streams_raw = get_section("streams")
@@ -699,6 +748,11 @@ def _nested_dict_to_toml(nested_dict: Dict[str, Any], parent_key: str = "") -> L
         if isinstance(value, dict):
             lines.append(f"[{full_key}]")
             lines.extend(_nested_dict_to_toml(value, full_key))
+        elif isinstance(value, list) and value and all(isinstance(x, dict) for x in value):
+            # Массив таблиц ([[stt.chain]]) — TOML-представление списка словарей.
+            for item in value:
+                lines.append(f"[[{full_key}]]")
+                lines.extend(_nested_dict_to_toml(item, full_key))
         else:
             val_str = _to_toml_value(value)
             lines.append(f"{key} = {val_str}")
@@ -741,15 +795,19 @@ def to_toml(config: Config) -> str:
     # [provider.draft]
     _add_section("provider.draft", asdict(config.provider.draft))
 
-    # [stt] + вложенные [stt.local] / [stt.cloud]
+    # [stt] + [[stt.chain]] (массив таблиц)
     _add_section("stt", {
-        "active": config.stt.active,
         "mode": config.stt.mode,
         "json_output": config.stt.json_output,
         "language_autodetect": config.stt.language_autodetect,
     })
-    _add_section("stt.local", asdict(config.stt.local))
-    _add_section("stt.cloud", asdict(config.stt.cloud))
+    for entry in config.stt.chain:
+        lines.append("[[stt.chain]]")
+        for key, value in asdict(entry).items():
+            if value == "":
+                continue  # пустые cloud-specific поля не пишем
+            lines.append(f"{key} = {_to_toml_value(value)}")
+        lines.append("")
 
     # [streams.microphone] and [streams.meeting]
     for stream_name, stream in config.streams.items():

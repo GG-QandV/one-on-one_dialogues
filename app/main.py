@@ -50,7 +50,8 @@ from app.privacy import PrivacyController, PrivacyProfile
 from app.queue import JobQueue, JobType, QueueConfig
 from app.security.byok import KeyStore
 from app.stt.base import SttResult
-from app.stt.factory import build_stt_provider
+from app.stt.chain import SttChainExhausted
+from app.stt.factory import build_stt_chain
 from app.stt.scheduler import SchedulerConfig, SttScheduler
 from app.translation.base import TranslationMode, TranslationProvider, TranslationRequest
 from app.translation.context import ContextConfig
@@ -187,12 +188,12 @@ class Application:
         from app.drafts.translate import DraftTranslator
         self._draft_translator = DraftTranslator(self._provider, self._draft_guard)
 
-        # 4. STT: провайдер по конфигу + один scheduler на процесс.
+        # 4. STT: цепочка провайдеров по конфигу + один scheduler на процесс.
         self._stt_cfg = cfg.stt if cfg.stt is not None else default_stt_section()
-        self._stt_provider = build_stt_provider(
+        self._stt_provider = build_stt_chain(
             self._stt_cfg,
             privacy=self.privacy,
-            key_provider=lambda: self.keystore.get("stt_cloud"),  # type: ignore[union-attr]
+            keystore=self.keystore,
         )
         self.stt = SttScheduler(
             self._stt_provider,
@@ -268,14 +269,8 @@ class Application:
         if cfg is None:
             return
         self._stt_cfg = cfg
-        key_provider = None
-        if self.keystore is not None:
-            def key_provider() -> str:  # type: ignore[misc]
-                assert self.keystore is not None
-                return self.keystore.get("stt_cloud")
-
-        new_provider = build_stt_provider(
-            cfg, privacy=self.privacy, key_provider=key_provider
+        new_provider = build_stt_chain(
+            cfg, privacy=self.privacy, keystore=self.keystore
         )
         old = self._stt_provider
         self._stt_provider = new_provider
@@ -416,8 +411,9 @@ class Application:
 
         def _tx(conn: sqlite3.Connection) -> None:
             conn.execute(
-                "UPDATE segments SET raw_text = ?, stt_model = ? WHERE id = ?",
-                (text or None, result.model, seg.id),
+                "UPDATE segments SET raw_text = ?, stt_model = ?, "
+                "stt_provider_used = ? WHERE id = ?",
+                (text or None, result.model, result.provider, seg.id),
             )
 
         await self.db.write(_tx)
@@ -441,13 +437,19 @@ class Application:
 
     async def _on_stt_error(self, seg: FinalSegment, exc: BaseException) -> None:
         assert self.jobs
-        if isinstance(exc, NotImplementedError):
-            # Постоянная ошибка (например, облачный STT API ещё не реализован):
-            # повтор не поможет и лишь зациклит очередь.
+        if isinstance(exc, (NotImplementedError, SttChainExhausted)):
+            # Постоянная ошибка: повтор не поможет и лишь зациклит очередь.
+            # Поток записи при этом не останавливается (§8.7).
             log.error(
                 "STT сегмента %s: постоянная ошибка, повтор не ставится: %s",
                 seg.id, exc,
             )
+            if self.db is not None:
+                with contextlib.suppress(Exception):
+                    await self.db.execute(
+                        "UPDATE segments SET translation_status = 'skipped' WHERE id = ?",
+                        (seg.id,),
+                    )
             return
         await self.jobs.enqueue(
             JobType.STT, segment_id=seg.id,
